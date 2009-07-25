@@ -257,8 +257,8 @@ class Builder(object):
         gcc_runner or atimes_runner or strace_runner as it can, automatically.
     """
 
-    def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.', hasher=md5_hasher,
-                 depsname='.deps'):
+    def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
+                 hasher=md5_hasher, depsname='.deps'):
         """ Initialise a Builder with the given options.
 
         "dirs" is a list of paths to look for dependencies (or outputs) in
@@ -269,8 +269,8 @@ class Builder(object):
             useful to speed up the atimes_runner if you're building in a large
             tree and you don't care about all of the subdirectories.
         "ignoreprefix" prevents recursion into directories that start with
-            prefix.  It defaults to '.' to ignore svn directories.
-            Change it to '_svn' if you use _svn hidden directories.
+            prefix. It defaults to '.' to ignore svn directories. Change it to
+            '_svn' if you use _svn hidden directories.
         "hasher" is a function which returns a string which changes when
             the contents of its filename argument changes, or None on error.
             Default is md5_hasher, but can also be mtime_hasher.
@@ -581,7 +581,7 @@ class Builder(object):
         """ Runner that always runs given command, used as a backup in case
             a system doesn't have fast atimes or strace. """
         shell(command, silent=False)
-        return None
+        return None, None
 
 class GccBuilder(Builder):
     """ Builder subclass example that uses gcc's -M dependency generation if it
@@ -649,17 +649,23 @@ class GccBuilder(Builder):
 default_builder = Builder()
 default_command = 'build'
 
-def setup(builder=None, default=None, **kwargs):
+def setup(builder=None, default=None, runner=None, **kwargs):
     """ Setup the default Builder (or an instance of given builder if "builder"
-        is not None) with the same keyword arguments as for Builder().
+        is not None) with the same keyword arguments as for Builder(). Also:
+
         "default" is the name of the default function to run when the build
-        script is run with no command line arguments. """
+            script is run with no command line arguments.
+        "runner" is None to use the default smart runner, otherwise the name
+            of the runner function to use, for example 'always_runner'.
+        """
     global default_builder, default_command
     if builder is not None:
         default_builder = builder()
     if default is not None:
         default_command = default
     default_builder.__init__(**kwargs)
+    if runner is not None:
+        default_builder.runner = getattr(default_builder, runner)
 
 def run(command):
     """ Run the given command using the default Builder (but only if its
