@@ -1,17 +1,17 @@
 """ Python build tool (make replacement) that automatically finds dependencies.
 
-fabricate is the best thing to happen to build tools since memoize.py. It
+builder is the best thing to happen to build tools since memoize.py. It
 automatically finds dependencies, and it lets you write your build scripts in
 a real programming language -- Python.
 
-With fabricate, you'll have no more of this (from the make docs):
+With builder, you'll have no more of this (from the make docs):
 
 files.o : files.c defs.h buffer.h command.h
         cc -c files.c
 
-You just tell fabricate to run('cc -c files.c') and it'll figure out what
-files.o depends on, automatically. Next time you build, the command will only
-get run if its dependencies have changed (or its outputs don't exist).
+You just tell builder to run('cc -c files.c') and it'll figure out what files.o
+depends on, automatically. Next time you build, the command will only get run
+if its dependencies have changed (or its outputs don't exist).
 
 And no more write-only crud like this:
 
@@ -21,10 +21,10 @@ And no more write-only crud like this:
          sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
          rm -f $@.$$$$
 
-Here's an example build file using fabricate:
+Here's an example build file using builder:
 
 -----
-from fabricate import *
+from builder import *
 
 sources = ['program', 'util']
 
@@ -46,27 +46,27 @@ def clean():
 main()
 -----
 
-What is fabricate not good for? If you don't know what KISS means, or you like
-the phrase "enterprise software", fabricate probably isn't for you. fabricate
+What is builder not good for? If you don't know what KISS means, or you like
+the phrase "enterprise software", builder probably isn't for you. builder
 doesn't use XML, web 2.0, or any other buzzword. Sorry.
 
-fabricate is inspired by Bill McCloskey's memoize, but works under Windows as
+builder is inspired by Bill McCloskey's memoize, but works under Windows as
 well by using file access times instead of strace if access time updates
 are available on your file system (works for FAT and NTFS). Bill's original
 memoize web page lives at:
     http://www.eecs.berkeley.edu/~billm/memoize.html
 
-fabricate was developed by Brush Technology for in-house use, but we thought
+builder was developed by Brush Technology for in-house use, but we thought
 it was cool enough to release to the world. Brush's website is at:
     http://brush.co.nz/
 
-Like memoize, fabricate is released under a "New BSD license". fabricate is
+Like memoize, builder is released under a "New BSD license". builder is
 copyright (c) 2009 Brush Technology. Full text of the license is here:
-    http://fabricate.googlecode.com/svn/trunk/LICENSE
+    http://***
 
 """
 
-# so you can do "from fabricate import *" to simplify your build script
+# so you can do "from builder import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'GccBuilder', 'setup', 'run', 'autoclean', 'memoize', 'outofdate',
            'main']
@@ -210,7 +210,7 @@ def _file_times(path, depth, ignoreprefix='.'):
         st = os.stat(fullname)
         if stat.S_ISDIR(st.st_mode):
             if depth > 1:
-                times.update(_file_times(fullname, depth - 1))
+                times.update(_file_times(fullname, depth-1, ignoreprefix))
         elif stat.S_ISREG(st.st_mode):
             times[fullname] = st.st_atime, st.st_mtime
     return times
@@ -257,8 +257,8 @@ class Builder(object):
         gcc_runner or atimes_runner or strace_runner as it can, automatically.
     """
 
-    def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
-                 hasher=md5_hasher, depsname='.deps'):
+    def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.', hasher=md5_hasher,
+                 depsname='.deps'):
         """ Initialise a Builder with the given options.
 
         "dirs" is a list of paths to look for dependencies (or outputs) in
@@ -269,8 +269,8 @@ class Builder(object):
             useful to speed up the atimes_runner if you're building in a large
             tree and you don't care about all of the subdirectories.
         "ignoreprefix" prevents recursion into directories that start with
-            prefix. It defaults to '.' to ignore svn directories. Change it to
-            '_svn' if you use _svn hidden directories.
+            prefix.  It defaults to '.' to ignore svn directories.
+            Change it to '_svn' if you use _svn hidden directories.
         "hasher" is a function which returns a string which changes when
             the contents of its filename argument changes, or None on error.
             Default is md5_hasher, but can also be mtime_hasher.
@@ -581,7 +581,7 @@ class Builder(object):
         """ Runner that always runs given command, used as a backup in case
             a system doesn't have fast atimes or strace. """
         shell(command, silent=False)
-        return None, None
+        return None
 
 class GccBuilder(Builder):
     """ Builder subclass example that uses gcc's -M dependency generation if it
@@ -649,23 +649,17 @@ class GccBuilder(Builder):
 default_builder = Builder()
 default_command = 'build'
 
-def setup(builder=None, default=None, runner=None, **kwargs):
+def setup(builder=None, default=None, **kwargs):
     """ Setup the default Builder (or an instance of given builder if "builder"
-        is not None) with the same keyword arguments as for Builder(). Also:
-
+        is not None) with the same keyword arguments as for Builder().
         "default" is the name of the default function to run when the build
-            script is run with no command line arguments.
-        "runner" is None to use the default smart runner, otherwise the name
-            of the runner function to use, for example 'always_runner'.
-        """
+        script is run with no command line arguments. """
     global default_builder, default_command
     if builder is not None:
         default_builder = builder()
     if default is not None:
         default_command = default
     default_builder.__init__(**kwargs)
-    if runner is not None:
-        default_builder.runner = getattr(default_builder, runner)
 
 def run(command):
     """ Run the given command using the default Builder (but only if its
