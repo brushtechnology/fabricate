@@ -16,8 +16,7 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
-           'GccBuilder', 'setup', 'run', 'autoclean', 'memoize', 'outofdate',
-           'main']
+           'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
 __version__ = '1.00'
@@ -200,12 +199,15 @@ class Builder(object):
     """ The Builder.
 
         You can subclass this and override the "runner" function to do what you
-        want. "runner" is the function used to run commands and generate
+        want. For an example, see:
+            http://code.google.com/p/fabricate/wiki/HowtoSubclassBuilder
+
+        "runner" is the function used to run commands and generate
         dependencies. It must take a command line string as its argument, and
         return a tuple of (deps, outputs), where deps is a list of abspath'd
         dependency files and outputs a list of abspath'd output files. It
         defaults to a function that just calls smart_runner, which uses
-        gcc_runner or atimes_runner or strace_runner as it can, automatically.
+        atimes_runner or strace_runner as it can, automatically.
     """
 
     def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
@@ -533,68 +535,6 @@ class Builder(object):
             a system doesn't have fast atimes or strace. """
         shell(command, silent=False)
         return None, None
-
-class GccBuilder(Builder):
-    """ Builder subclass example that uses gcc's -M dependency generation if it
-        can, otherwise defaults to the default "smart" dependency runner. """
-
-    def is_gcc(self, command):
-        """ Return True if command looks like a gcc command. """
-        return 'gcc ' in command or 'gcc.exe' in command
-
-    def runner(self, command):
-        """ Run command using gcc dependency generation if it looks possible,
-            otherwise use the default smart runner to find dependencies. """
-        if self.is_gcc(command):
-            return self.gcc_runner(command)
-        else:
-            return self.smart_runner(command)
-
-    def gcc_runner(self, command):
-        """ Run gcc command and return its dependencies and outputs. """
-        if ' -c' in command:
-            return self.gcc_compile_runner(command)
-        else:
-            return self.gcc_link_runner(command)
-
-    def gcc_compile_runner(self, command):
-        """ Run gcc compile command and return its list of dependencies and
-            outputs, using gcc's -M options to determine dependencies. """
-        deps_file = 'temp.d'
-        command += ' -MMD -MF %s' % deps_file
-        shell(command, silent=False)
-        f = open(deps_file)
-        try:
-            target, deps_data = f.read().split(':', 1)
-        finally:
-            f.close()
-        os.remove(deps_file)
-        deps = []
-        for line in deps_data.split('\n'):
-            if line.endswith(' \\'):
-                line = line[:-2]
-            # temporarily replace spaces in filenames with a char that will
-            # "never" occur
-            line = line.replace('\\ ', '#')
-            for dep in line.split():
-                dep = dep.replace('#', ' ')
-                deps.append(os.path.abspath(dep))
-        outputs = [os.path.abspath(target)]
-        return deps, outputs
-
-    def gcc_link_runner(self, command):
-        """ Run gcc link command and return its list of dependencies and
-            outputs, using given gcc command to determine dependencies. """
-        target = command.split('-o ')[1].split()[0]
-        if sys.platform == 'win32' and not target.endswith('.exe'):
-            target += '.exe'
-        deps = []
-        for word in command.split():
-            if word.endswith('.o'):
-                deps.append(os.path.abspath(word))
-        shell(command, silent=False)
-        outputs = [os.path.abspath(target)]
-        return deps, outputs
 
 # default Builder instance, used by helper run() and main() helper functions
 default_builder = Builder()
