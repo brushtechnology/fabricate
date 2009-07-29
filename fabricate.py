@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.00'
+__version__ = '1.01'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -207,7 +207,7 @@ class Builder(object):
         return a tuple of (deps, outputs), where deps is a list of abspath'd
         dependency files and outputs a list of abspath'd output files. It
         defaults to a function that just calls smart_runner, which uses
-        atimes_runner or strace_runner as it can, automatically.
+        strace_runner or atimes_runner as it can, automatically.
     """
 
     def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
@@ -215,7 +215,7 @@ class Builder(object):
         """ Initialise a Builder with the given options.
 
         "dirs" is a list of paths to look for dependencies (or outputs) in
-            if using the 'atimes' or 'strace' runners.
+            if using the strace or atimes runners.
         "dirdepth" is the depth to recurse into the paths in "dirs" (default
             essentially means infinitely). Set to 1 to just look at the
             immediate paths in "dirs" and not recurse at all. This can be
@@ -360,13 +360,13 @@ class Builder(object):
         return self.smart_runner(command)
 
     def smart_runner(self, command):
-        """ Smart command runner that uses access times for finding
-            dependencies and outputs on Win32, strace on Linux. """
+        """ Smart command runner that uses strace if it can, otherwise
+            access times if available, otherwise always builds. """
         if not hasattr(self, '_smart_runner'):
-            if has_atimes(self.dirs):
-                self._smart_runner = self.atimes_runner
-            elif has_strace():
+            if has_strace():
                 self._smart_runner = self.strace_runner
+            elif has_atimes(self.dirs):
+                self._smart_runner = self.atimes_runner
             else:
                 self._smart_runner = self.always_runner
         return self._smart_runner(command)
@@ -532,7 +532,7 @@ class Builder(object):
 
     def always_runner(self, command):
         """ Runner that always runs given command, used as a backup in case
-            a system doesn't have fast atimes or strace. """
+            a system doesn't have strace or atimes. """
         shell(command, silent=False)
         return None, None
 
