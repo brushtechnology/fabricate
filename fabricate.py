@@ -19,12 +19,13 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.01'
+__version__ = '1.02'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
 
 import atexit
+import optparse
 import os
 import re
 import stat
@@ -578,6 +579,26 @@ def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
     return default_builder.outofdate(command)
 
+def parse_options(usage):
+    """ Parse command line options and return parser and args. """
+    parser = optparse.OptionParser(usage='Usage: %prog '+usage,
+                                   version='%prog '+__version__)
+    parser.disable_interspersed_args()
+    parser.add_option('-t', '--time', action='store_true',
+                      help='use file modification times instead of MD5 sums')
+    parser.add_option('-d', '--dir', action='append',
+                      help='add DIR to list of relevant directories')
+    parser.add_option('-c', '--clean', action='store_true',
+                      help='autoclean build outputs before running')
+    options, args = parser.parse_args()
+    if options.time:
+        default_builder.hasher = mtime_hasher
+    if options.dir:
+        default_builder.dirs.extend(os.path.abspath(d) for d in options.dir)
+    if options.clean:
+        default_builder.autoclean()
+    return parser, args
+
 def main(globals_dict=None):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. """
@@ -588,10 +609,10 @@ def main(globals_dict=None):
             printerr("Your Python version doesn't support sys._getframe(1),")
             printerr("call main(globals()) explicitly")
             sys.exit(1)
-    if len(sys.argv) <= 1:
+
+    parser, actions = parse_options('[options] build script functions to run')
+    if not actions:
         actions = [default_command]
-    else:
-        actions = sys.argv[1:]
 
     try:
         for action in actions:
@@ -613,7 +634,8 @@ def main(globals_dict=None):
 
 if __name__ == '__main__':
     # if called as a script, emulate memoize.py -- run() command line
-    if len(sys.argv) > 1:
-        run(' '.join(sys.argv[1:]))
+    parser, args = parse_options('[options] command line to run')
+    if len(args) > 1:
+        run(' '.join(args))
     else:
-        printerr("Usage: fabricate.py command line to run")
+        parser.print_help()
