@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.02'
+__version__ = '1.03'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -597,7 +597,7 @@ def parse_options(usage):
         default_builder.dirs.extend(os.path.abspath(d) for d in options.dir)
     if options.clean:
         default_builder.autoclean()
-    return parser, args
+    return parser, options, args
 
 def main(globals_dict=None):
     """ Run the default function or the function(s) named in the command line
@@ -610,7 +610,8 @@ def main(globals_dict=None):
             printerr("call main(globals()) explicitly")
             sys.exit(1)
 
-    parser, actions = parse_options('[options] build script functions to run')
+    usage = '[options] build script functions to run'
+    parser, options, actions = parse_options(usage)
     if not actions:
         actions = [default_command]
 
@@ -634,8 +635,8 @@ def main(globals_dict=None):
 
 if __name__ == '__main__':
     # if called as a script, emulate memoize.py -- run() command line
-    parser, args = parse_options('[options] command line to run')
+    parser, options, args = parse_options('[options] command line to run')
     if len(args) > 1:
         run(' '.join(args))
-    else:
+    elif not options.clean:
         parser.print_help()
