@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.03'
+__version__ = '1.04'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -196,6 +196,15 @@ def mtime_hasher(filename):
     except IOError:
         return None
 
+def shrink_path(filename):
+    """ Try to shrink a filename for display (remove the leading path if the
+        file is relative to the current working directory). """
+    cwd = os.getcwd()
+    prefix = os.path.commonprefix([cwd, filename])
+    if prefix:
+        filename = filename[len(prefix)+1:]
+    return filename
+
 class Builder(object):
     """ The Builder.
 
@@ -212,7 +221,7 @@ class Builder(object):
     """
 
     def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
-                 hasher=md5_hasher, depsname='.deps'):
+                 hasher=md5_hasher, depsname='.deps', quiet=False):
         """ Initialise a Builder with the given options.
 
         "dirs" is a list of paths to look for dependencies (or outputs) in
@@ -229,6 +238,8 @@ class Builder(object):
             the contents of its filename argument changes, or None on error.
             Default is md5_hasher, but can also be mtime_hasher.
         "depsname" is the name of the JSON dependency file to load/save.
+        "quiet" set to True tells the builder to not display the commands being
+            executed (or other non-error output).
         """
         if dirs is None:
             dirs = ['.']
@@ -237,7 +248,21 @@ class Builder(object):
         self.ignoreprefix = ignoreprefix
         self.depsname = depsname
         self.hasher = hasher
+        self.quiet = quiet
         self.checking = False
+
+    def echo(self, message):
+        """ Print message, but only if builder is not in quiet mode. """
+        if not self.quiet:
+            print message
+
+    def echo_command(self, command):
+        """ Show a command being executed. """
+        self.echo(command)
+
+    def echo_delete(self, filename):
+        """ Show a file being deleted. """
+        self.echo('deleting %s' % shrink_path(filename))
 
     def run(self, command, runner=None):
         """ Run given shell command, but only if its dependencies or outputs
@@ -251,7 +276,7 @@ class Builder(object):
             return
 
         # use runner to run command and collect dependencies
-        print command
+        self.echo_command(command)
         if runner is None:
             runner = self.runner
         deps, outputs = runner(command)
@@ -267,6 +292,16 @@ class Builder(object):
                 if hash is not None:
                     deps_dict[output] = "output-" + hash
             self.deps[command] = deps_dict
+
+    def memoize(self, command):
+        """ Run given shell command as per run(), but return the status code
+            instead of raising an exception if there's an error. """
+        try:
+            run(command)
+            return 0
+        except ExecutionError, exc:
+            message, data, status = exc
+            return status
 
     def outofdate(self, command):
         """ Return True if given command is out of date. Command can either be
@@ -307,16 +342,12 @@ class Builder(object):
                            if hash.startswith('output-'))
         outputs.append(os.path.abspath(self.depsname))
         self._deps = None
-        cwd = os.getcwd()
         for output in outputs:
             try:
                 os.remove(output)
-                prefix = os.path.commonprefix([cwd, output])
-                if prefix:
-                    output = output[len(prefix)+1:]
-                print 'deleting', output
             except OSError:
-                pass
+                continue
+            self.echo_delete(output)
 
     @property
     def deps(self):
@@ -450,7 +481,7 @@ class Builder(object):
     def _do_strace(self, ecmd, outfile, outname):
         """ Run strace on given (escaped) command, sending output to file.
             Return (status code, list of dependencies, list of outputs). """
-        calls = 'open,stat64,execve,exit_group,chdir,mkdir'
+        calls = 'open,stat64,execve,exit_group,chdir,mkdir,rename'
         shell('strace -f -o %s -e trace=%s /bin/sh -c "%s"' %
               (outname, calls, ecmd), silent=False)
 
@@ -460,26 +491,33 @@ class Builder(object):
         outputs = set()
         for line in outfile:
             is_output = False
-            match1 = re.match(r'.*open\("([^"]*)", ([^,)]*)', line)
-            match2 = re.match(r'.*stat64\("([^"]*)", .*', line)
-            match3 = re.match(r'.*execve\("([^"]*)", .*', line)
-            match4 = re.match(r'.*mkdir\("([^"]*)", .*', line)
+            open_match = re.match(r'.*open\("([^"]*)", ([^,)]*)', line)
+            stat64_match = re.match(r'.*stat64\("([^"]*)", .*', line)
+            execve_match = re.match(r'.*execve\("([^"]*)", .*', line)
+            mkdir_match = re.match(r'.*mkdir\("([^"]*)", .*', line)
+            rename_match = re.match(r'.*rename\("[^"]*", "([^"]*)"\)', line)
+
             kill_match = re.match(r'.*killed by.*', line)
             if kill_match:
                 return None, None, None
 
-            if match1:
-                match = match1
+            match = None
+            if open_match:
+                match = open_match
                 mode = match.group(2)
                 if 'O_WRONLY' in mode or 'O_RDWR' in mode:
                     # it's an output file if opened for writing
                     is_output = True
-            elif match2:
-                match = match2
-            elif match3:
-                match = match3
-            else:
-                match = match4
+            elif stat64_match:
+                match = stat64_match
+            elif execve_match:
+                match = execve_match
+            elif mkdir_match:
+                match = mkdir_match
+            elif rename_match:
+                match = rename_match
+                # the destination of a rename is an output file
+                is_output = True
             if match:
                 name = os.path.normpath(os.path.join(cwd, match.group(1)))
                 if self._is_relevant(name) and (os.path.isfile(name) or
@@ -568,12 +606,7 @@ def memoize(command):
     """ A memoize function compatible with memoize.py. Basically the same as
         run(), but returns the status code instead of raising an exception
         if there's an error. """
-    try:
-        run(command)
-        return 0
-    except ExecutionError, exc:
-        message, data, status = exc
-        return status
+    return default_builder.memoize(command)
 
 def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
@@ -590,7 +623,10 @@ def parse_options(usage):
                       help='add DIR to list of relevant directories')
     parser.add_option('-c', '--clean', action='store_true',
                       help='autoclean build outputs before running')
+    parser.add_option('-q', '--quiet', action='store_true',
+                      help="don't echo commands, only print errors")
     options, args = parser.parse_args()
+    default_builder.quiet = options.quiet
     if options.time:
         default_builder.hasher = mtime_hasher
     if options.dir:
@@ -636,7 +672,11 @@ def main(globals_dict=None):
 if __name__ == '__main__':
     # if called as a script, emulate memoize.py -- run() command line
     parser, options, args = parse_options('[options] command line to run')
-    if len(args) > 1:
-        run(' '.join(args))
+    status = 0
+    if args:
+        status = memoize(' '.join(args))
     elif not options.clean:
         parser.print_help()
+        status = 1
+    # autoclean may have been used
+    sys.exit(status)
