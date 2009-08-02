@@ -297,7 +297,7 @@ class Builder(object):
         """ Run given shell command as per run(), but return the status code
             instead of raising an exception if there's an error. """
         try:
-            run(command)
+            self.run(command)
             return 0
         except ExecutionError, exc:
             message, data, status = exc
