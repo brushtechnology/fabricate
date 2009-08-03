@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.04'
+__version__ = '1.05'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -637,7 +637,9 @@ def parse_options(usage):
 
 def main(globals_dict=None):
     """ Run the default function or the function(s) named in the command line
-        arguments. Call this at the end of your build script. """
+        arguments. Call this at the end of your build script. If one of the
+        functions returns nonzero, main will exit with the last nonzero return
+        value as its status code. """
     if globals_dict is None:
         try:
             globals_dict = sys._getframe(1).f_globals
@@ -651,23 +653,23 @@ def main(globals_dict=None):
     if not actions:
         actions = [default_command]
 
+    status = 0
     try:
         for action in actions:
             if '(' not in action:
                 action = action.strip() + '()'
             name = action.split('(')[0].split('.')[0]
             if name in globals_dict:
-                status = eval(action, globals_dict) or 0
-                if status:
-                    raise ExecutionError('Command %r returned exit status %d'
-                        % (action, status), '', status)
+                this_status = eval(action, globals_dict)
+                if this_status:
+                    status = int(this_status)
             else:
                 printerr('%r command not defined!' % action)
-                status = 1
-            if status:
-                sys.exit(status)
-    except ExecutionError, e:
-        printerr(e[0])
+                sys.exit(1)
+    except ExecutionError, exc:
+        message, data, status = exc
+        printerr(message)
+    sys.exit(status)
 
 if __name__ == '__main__':
     # if called as a script, emulate memoize.py -- run() command line
