@@ -260,9 +260,12 @@ class Builder(object):
         """ Show a command being executed. """
         self.echo(command)
 
-    def echo_delete(self, filename):
-        """ Show a file being deleted. """
-        self.echo('deleting %s' % shrink_path(filename))
+    def echo_delete(self, filename, error=None):
+        """ Show a file being deleted. For subclassing Builder and overriding
+            this function, the exception is passed in if an OSError occurs
+            while deleting a file. """
+        if error is None:
+            self.echo('deleting %s' % shrink_path(filename))
 
     def run(self, command, runner=None):
         """ Run given shell command, but only if its dependencies or outputs
@@ -345,9 +348,10 @@ class Builder(object):
         for output in outputs:
             try:
                 os.remove(output)
-            except OSError:
-                continue
-            self.echo_delete(output)
+            except OSError, e:
+                self.echo_delete(output, e)
+            else:
+                self.echo_delete(output)
 
     @property
     def deps(self):
