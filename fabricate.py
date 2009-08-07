@@ -27,6 +27,7 @@ deps_version = 1
 import atexit
 import optparse
 import os
+import platform
 import re
 import stat
 import subprocess
@@ -141,6 +142,9 @@ def has_atimes(paths):
 
 def has_strace():
     """ Return True if this system has strace. """
+    if platform.system() == 'Windows':
+        # even if windows has strace, it's probably a dodgy cygwin one
+        return False
     try:
         subprocess.Popen('strace', stderr=subprocess.PIPE)
         return True
@@ -193,7 +197,7 @@ def mtime_hasher(filename):
     try:
         st = os.stat(filename)
         return repr(st.st_mtime)
-    except IOError:
+    except (IOError, OSError):
         return None
 
 def shrink_path(filename):
