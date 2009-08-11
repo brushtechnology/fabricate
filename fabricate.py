@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.05'
+__version__ = '1.06'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -66,13 +66,37 @@ def printerr(message):
 class ExecutionError(Exception):
     pass
 
-def shell(command, input=None, silent=True):
-    """ Run given shell command and return its output as a string.
-        - input='string' to pass standard input into the process.
-        - input=None (default) to use parent's stdin (keyboard)
-        - silent=False to use parent's stdout (i.e. print output
-          as-it-comes instead of returning it)
-    """
+def args_to_list(args):
+    """ Return a flat list of the given arguments for shell(). """
+    arglist = []
+    for arg in args:
+        if hasattr(arg, '__iter__'):
+            arglist.extend(arg)
+        else:
+            arglist.append(arg)
+    return arglist
+
+def shell(*args, **kwargs):
+    """ Run a command: program name is given in first arg and command line
+        arguments in the rest of the args. Iterables (lists and tuples) in args
+        are converted to separate arguments, so you can do:
+
+            shell('gcc', '-o', 'program.exe', ['program.o', 'util.o'])
+
+        Keyword arguments kwargs are interpreted as follows:
+
+        "input" is a string to pass standard input into the process (or the
+            default of None to use parent's stdin, eg: the keyboard)
+        "silent" is True (default) to return process's standard output as a
+            string, or False to print it as it comes out
+        "shell" set to True will run the command via the shell (/bin/sh or
+            COMSPEC) instead of running the command directly (the default)
+
+        Raises ExecutionError(message, output, status) if the command returns
+        a non-zero status code. """
+    return _shell(args, **kwargs)
+
+def _shell(args, input=None, silent=True, shell=False):
     if input:
         stdin = subprocess.PIPE
     else:
@@ -81,17 +105,20 @@ def shell(command, input=None, silent=True):
         stdout = subprocess.PIPE
     else:
         stdout = None
-    proc = subprocess.Popen(command, shell=True, stdin=stdin, stdout=stdout,
-                            stderr=subprocess.STDOUT)
-    if input:
-        proc.stdin.write(input)
-    output = ''
-    if silent:
-        output = proc.stdout.read()
+    arglist = args_to_list(args)
+    if shell:
+        # handle subprocess.Popen quirk where subsequent args are passed
+        # to bash instead of to our command
+        command = subprocess.list2cmdline(arglist)
+    else:
+        command = arglist
+    proc = subprocess.Popen(command, stdin=stdin, stdout=stdout,
+                            stderr=subprocess.STDOUT, shell=shell)
+    output, stderr = proc.communicate(input)
     status = proc.wait()
     if status:
-        raise ExecutionError('Command %r terminated with exit status %d'
-                             % (command.split(' ')[0], status), output, status)
+        raise ExecutionError('%r exited with status %d'
+                             % (arglist[0], status), output, status)
     if silent:
         return output
 
@@ -217,7 +244,7 @@ class Builder(object):
             http://code.google.com/p/fabricate/wiki/HowtoSubclassBuilder
 
         "runner" is the function used to run commands and generate
-        dependencies. It must take a command line string as its argument, and
+        dependencies. It must take a program name and a list of arguments, and
         return a tuple of (deps, outputs), where deps is a list of abspath'd
         dependency files and outputs a list of abspath'd output files. It
         defaults to a function that just calls smart_runner, which uses
@@ -271,10 +298,13 @@ class Builder(object):
         if error is None:
             self.echo('deleting %s' % shrink_path(filename))
 
-    def run(self, command, runner=None):
-        """ Run given shell command, but only if its dependencies or outputs
-            have changed or don't exist. Override default runner if given. """
-        if not self.outofdate(command):
+    def run(self, *args):
+        """ Run command given in args as per shell(), but only if its
+            dependencies or outputs have changed or don't exist. """
+        arglist = args_to_list(args)
+        # we want a command line string for the .deps file key and for display
+        command = subprocess.list2cmdline(arglist)
+        if not self.cmdline_outofdate(command):
             return
 
         # if just checking up-to-date-ness, set flag and do nothing more
@@ -284,9 +314,7 @@ class Builder(object):
 
         # use runner to run command and collect dependencies
         self.echo_command(command)
-        if runner is None:
-            runner = self.runner
-        deps, outputs = runner(command)
+        deps, outputs = self.runner(*arglist)
         if deps is not None or outputs is not None:
             deps_dict = {}
             # hash the dependency inputs and outputs
@@ -301,43 +329,42 @@ class Builder(object):
             self.deps[command] = deps_dict
 
     def memoize(self, command):
-        """ Run given shell command as per run(), but return the status code
+        """ Run given command line much like run(), but return the status code
             instead of raising an exception if there's an error. """
         try:
-            self.run(command)
+            self.run(*command.split())  # *** this isn't escaping-safe
             return 0
         except ExecutionError, exc:
             message, data, status = exc
             return status
 
-    def outofdate(self, command):
-        """ Return True if given command is out of date. Command can either be
-            a callable build function or a command line string. """
-        if callable(command):
-            # command is a build function
-            self.checking = True
-            self.outofdate_flag = False
-            command()
-            self.checking = False
-            return self.outofdate_flag
-        else:
-            # command is a command line string
-            if command in self.deps:
-                for dep, oldhash in self.deps[command].items():
-                    assert oldhash.startswith('input-') or \
-                           oldhash.startswith('output-'), \
-                        "%s file corrupt, do a clean!" % self.depsname
-                    oldhash = oldhash.split('-', 1)[1]
-                    # make sure this dependency or output hasn't changed
-                    newhash = self.hasher(dep)
-                    if newhash is None or newhash != oldhash:
-                        break
-                else:
-                    # all dependencies are unchanged
-                    return False
-            # command has never been run, or one of the dependencies didn't
-            # exist or had changed
-            return True
+    def outofdate(self, func):
+        """ Return True if given build function is out of date. """
+        self.checking = True
+        self.outofdate_flag = False
+        func()
+        self.checking = False
+        return self.outofdate_flag
+
+    def cmdline_outofdate(self, command):
+        """ Return True if given command line is out of date. """
+        if command in self.deps:
+            # command has been run before, see if deps have changed
+            for dep, oldhash in self.deps[command].items():
+                assert oldhash.startswith('input-') or \
+                       oldhash.startswith('output-'), \
+                    "%s file corrupt, do a clean!" % self.depsname
+                oldhash = oldhash.split('-', 1)[1]
+                # make sure this dependency or output hasn't changed
+                newhash = self.hasher(dep)
+                if newhash is None or newhash != oldhash:
+                    break
+            else:
+                # all dependencies are unchanged
+                return False
+        # command has never been run, or one of the dependencies didn't
+        # exist or had changed
+        return True
 
     def autoclean(self):
         """ Automatically delete all outputs of this build as well as the .deps
@@ -394,12 +421,12 @@ class Builder(object):
             f.close()
             self._deps.pop('.deps_version', None)
 
-    def runner(self, command):
+    def runner(self, *args):
         """ The default command runner. Override this in a subclass if you want
             to write your own auto-dependency runner."""
-        return self.smart_runner(command)
+        return self.smart_runner(*args)
 
-    def smart_runner(self, command):
+    def smart_runner(self, *args):
         """ Smart command runner that uses strace if it can, otherwise
             access times if available, otherwise always builds. """
         if not hasattr(self, '_smart_runner'):
@@ -409,7 +436,7 @@ class Builder(object):
                 self._smart_runner = self.atimes_runner
             else:
                 self._smart_runner = self.always_runner
-        return self._smart_runner(command)
+        return self._smart_runner(*args)
 
     def _utime(self, filename, atime, mtime):
         """ Call os.utime but ignore permission errors """
@@ -434,18 +461,12 @@ class Builder(object):
             adjusted[filename] = entry
         return adjusted
 
-    # *** Note: tree walking time can be halved by caching afters for the next
-    # command's befores.
-    # We can also save lots of utime-ing by not restoring original atimes until
-    # after the final build step (because currently we're restoring atimes just
-    # to age them again for the next command.)
-
-    def atimes_runner(self, command):
+    def atimes_runner(self, *args):
         """ Run command and return its dependencies and outputs, using before
             and after access times to determine dependencies. """
         originals = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
         befores = self._age_atimes(originals, 24*60*60)
-        shell(command, silent=False)
+        shell(*args, **dict(silent=False))
         afters = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
         deps = []
         outputs = []
@@ -486,12 +507,12 @@ class Builder(object):
                 return True
         return False
 
-    def _do_strace(self, ecmd, outfile, outname):
-        """ Run strace on given (escaped) command, sending output to file.
+    def _do_strace(self, args, outfile, outname):
+        """ Run strace on given command args, sending output to file.
             Return (status code, list of dependencies, list of outputs). """
-        calls = 'open,stat64,execve,exit_group,chdir,mkdir,rename'
-        shell('strace -f -o %s -e trace=%s /bin/sh -c "%s"' %
-              (outname, calls, ecmd), silent=False)
+        shell('strace', '-fo', outname,
+              '-e', 'trace=open,stat64,execve,exit_group,chdir,mkdir,rename',
+              args, silent=False)
 
         cwd = os.getcwd()
         status = 0
@@ -545,15 +566,10 @@ class Builder(object):
 
         return status, list(deps), list(outputs)
 
-    def strace_runner(self, command):
+    def strace_runner(self, *args):
         """ Run command and return its dependencies and outputs, using strace
             to determine dependencies (by looking at what files are opened or
             modified). """
-        ecmd = command
-        ecmd = ecmd.replace('\\', '\\\\')
-        ecmd = ecmd.replace('"', '\\"')
-        exename = command.split()[0]
-
         handle, outname = tempfile.mkstemp()
         try:
             try:
@@ -562,25 +578,24 @@ class Builder(object):
                 os.close(handle)
                 raise
             try:
-                status, deps, outputs = self._do_strace(ecmd, outfile, outname)
+                status, deps, outputs = self._do_strace(args, outfile, outname)
                 if status is None:
                     raise ExecutionError(
-                        'strace of %r was killed unexpectedly' % exename)
+                        '%r was killed unexpectedly' % args[0], '', -1)
             finally:
                 outfile.close()
         finally:
             os.remove(outname)
 
         if status:
-            raise ExecutionError(
-                'strace of %r terminated with exit status %d'
-                % (exename, status), '', status)
+            raise ExecutionError('%r exited with status %d'
+                                 % (args[0], status), '', status)
         return list(deps), list(outputs)
 
-    def always_runner(self, command):
+    def always_runner(self, *args):
         """ Runner that always runs given command, used as a backup in case
             a system doesn't have strace or atimes. """
-        shell(command, silent=False)
+        shell(*args, **dict(silent=False))
         return None, None
 
 # default Builder instance, used by helper run() and main() helper functions
@@ -601,10 +616,10 @@ def setup(builder=None, default=None, runner=None, **kwargs):
     if runner is not None:
         default_builder.runner = getattr(default_builder, runner)
 
-def run(command):
+def run(*args):
     """ Run the given command using the default Builder (but only if its
         dependencies have changed). """
-    default_builder.run(command)
+    default_builder.run(*args)
 
 def autoclean():
     """ Automatically delete all outputs of the default build. """
@@ -676,7 +691,7 @@ def main(globals_dict=None):
                 sys.exit(1)
     except ExecutionError, exc:
         message, data, status = exc
-        printerr(message)
+        printerr('fabricate: ' + message)
     sys.exit(status)
 
 if __name__ == '__main__':
