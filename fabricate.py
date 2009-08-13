@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.06'
+__version__ = '1.07'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -70,18 +70,29 @@ def args_to_list(args):
     """ Return a flat list of the given arguments for shell(). """
     arglist = []
     for arg in args:
+        if arg is None:
+            continue
         if hasattr(arg, '__iter__'):
-            arglist.extend(arg)
+            arglist.extend(args_to_list(arg))
         else:
+            if not isinstance(arg, basestring):
+                arg = str(arg)
             arglist.append(arg)
     return arglist
 
 def shell(*args, **kwargs):
     """ Run a command: program name is given in first arg and command line
         arguments in the rest of the args. Iterables (lists and tuples) in args
-        are converted to separate arguments, so you can do:
+        are recursively converted to separate arguments, non-string types are
+        converted with str(arg), and None is ignored. For example:
 
-            shell('gcc', '-o', 'program.exe', ['program.o', 'util.o'])
+        >>> def tail(input, n=3, flags=None):
+        >>>     args = ['-n', n]
+        >>>     return shell('tail', args, flags, input=input)
+        >>> tail('a\nb\nc\nd\ne\n')
+        'c\nd\ne\n'
+        >>> tail('a\nb\nc\nd\ne\n', 2, ['-v'])
+        '==> standard input <==\nd\ne\n'
 
         Keyword arguments kwargs are interpreted as follows:
 
@@ -106,6 +117,8 @@ def _shell(args, input=None, silent=True, shell=False):
     else:
         stdout = None
     arglist = args_to_list(args)
+    if not arglist:
+        raise TypeError('shell() takes at least 1 argument (0 given)')
     if shell:
         # handle subprocess.Popen quirk where subsequent args are passed
         # to bash instead of to our command
@@ -118,7 +131,8 @@ def _shell(args, input=None, silent=True, shell=False):
     status = proc.wait()
     if status:
         raise ExecutionError('%r exited with status %d'
-                             % (arglist[0], status), output, status)
+                             % (os.path.basename(arglist[0]), status),
+                             output, status)
     if silent:
         return output
 
@@ -302,6 +316,8 @@ class Builder(object):
         """ Run command given in args as per shell(), but only if its
             dependencies or outputs have changed or don't exist. """
         arglist = args_to_list(args)
+        if not arglist:
+            raise TypeError('run() takes at least 1 argument (0 given)')
         # we want a command line string for the .deps file key and for display
         command = subprocess.list2cmdline(arglist)
         if not self.cmdline_outofdate(command):
@@ -589,7 +605,8 @@ class Builder(object):
 
         if status:
             raise ExecutionError('%r exited with status %d'
-                                 % (args[0], status), '', status)
+                                 % (os.path.basename(args[0]), status),
+                                 '', status)
         return list(deps), list(outputs)
 
     def always_runner(self, *args):
