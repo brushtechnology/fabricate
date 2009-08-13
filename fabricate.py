@@ -29,6 +29,7 @@ import optparse
 import os
 import platform
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -64,6 +65,7 @@ def printerr(message):
     print >>sys.stderr, message
 
 class ExecutionError(Exception):
+    """ Raised by shell() and run() if command returns non-zero exit code. """
     pass
 
 def args_to_list(args):
@@ -81,7 +83,7 @@ def args_to_list(args):
     return arglist
 
 def shell(*args, **kwargs):
-    """ Run a command: program name is given in first arg and command line
+    r""" Run a command: program name is given in first arg and command line
         arguments in the rest of the args. Iterables (lists and tuples) in args
         are recursively converted to separate arguments, non-string types are
         converted with str(arg), and None is ignored. For example:
@@ -345,10 +347,20 @@ class Builder(object):
             self.deps[command] = deps_dict
 
     def memoize(self, command):
-        """ Run given command line much like run(), but return the status code
-            instead of raising an exception if there's an error. """
+        """ Run the given command, but only if its dependencies have changed --
+            like run(), but returns the status code instead of raising an
+            exception on error. If "command" is a string (as per memoize.py)
+            it's split into args using shlex.split() in a POSIX/bash style,
+            otherwise it's a list of args as per run().
+    
+            This function is for compatiblity with memoize.py and is
+            deprecated. Use run() instead. """
+        if isinstance(command, basestring):
+            args = shlex.split(command)
+        else:
+            args = args_to_list(command)
         try:
-            self.run(*command.split())  # *** this isn't escaping-safe
+            self.run(args)
             return 0
         except ExecutionError, exc:
             message, data, status = exc
@@ -634,8 +646,8 @@ def setup(builder=None, default=None, runner=None, **kwargs):
         default_builder.runner = getattr(default_builder, runner)
 
 def run(*args):
-    """ Run the given command using the default Builder (but only if its
-        dependencies have changed). """
+    """ Run the given command, but only if its dependencies have changed. Uses
+        the default Builder. """
     default_builder.run(*args)
 
 def autoclean():
@@ -643,10 +655,9 @@ def autoclean():
     default_builder.autoclean()
 
 def memoize(command):
-    """ A memoize function compatible with memoize.py. Basically the same as
-        run(), but returns the status code instead of raising an exception
-        if there's an error. """
     return default_builder.memoize(command)
+
+memoize.__doc__ = Builder.memoize.__doc__
 
 def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
@@ -716,7 +727,7 @@ if __name__ == '__main__':
     parser, options, args = parse_options('[options] command line to run')
     status = 0
     if args:
-        status = memoize(' '.join(args))
+        status = memoize(args)
     elif not options.clean:
         parser.print_help()
         status = 1
