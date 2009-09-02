@@ -19,7 +19,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.07'
+__version__ = '1.08'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 1
@@ -35,6 +35,21 @@ import subprocess
 import sys
 import tempfile
 import time
+
+FAT_atime_resolution = 24*60*60     # resolution on FAT filesystems (seconds)
+FAT_mtime_resolution = 2
+
+# NTFS resolution is < 1 ms
+#  We assume this is considerably more than time to run a new process
+
+NTFS_atime_resolution = 0.0002048   # resolution on NTFS filesystems (seconds)
+NTFS_mtime_resolution = 0.0002048   #  is actually 0.1us but python's can be
+                                    #  as low as 204.8us due to poor
+                                    #  float precision when storing numbers
+                                    #  as big as NTFS file times can be
+                                    #  (float has 52-bit precision and NTFS
+                                    #  FILETIME has 63-bit precision, so
+                                    #  we've lost 11 bits = 2048)
 
 # So we can use md5func in old and new versions of Python without warnings
 try:
@@ -141,30 +156,63 @@ def _shell(args, input=None, silent=True, shell=False):
 def access_file(filename):
     """ Access (read a byte from) file to try to update its access time. """
     f = open(filename)
-    data = f.read(1)
+    f.read(1)
     f.close()
 
 def file_has_atimes(filename):
-    """ Return True if the given filesystem supports access time updates for
-        this file. The atime resolution must be at least one day (as it is on
-        FAT filesystems). """
+    """ Return whether the given filesystem supports access time updates for
+        this file. Return:
+          - 0 if no a/mtimes not updated
+          - 1 if the atime resolution is at least one day and
+            the mtime resolution at least 2 seconds (as on FAT filesystems)
+          - 2 if the atime and mtime resolutions are both < ms
+            (NTFS filesystem has 100 ns resolution). """
+    initial = os.stat(filename)
+    os.utime(filename, (
+        initial.st_atime-FAT_atime_resolution,
+        initial.st_mtime-FAT_mtime_resolution))
 
-    resolution = 24*60*60           # in seconds (worst-case resolution)
-    stat = os.stat(filename)
-    os.utime(filename, (stat.st_atime-resolution, stat.st_mtime))
-
-    previous = os.stat(filename).st_atime
+    adjusted = os.stat(filename)
     access_file(filename)
-    return os.stat(filename).st_atime > previous
+    after = os.stat(filename)
+
+    # Check that a/mtimes actually moved back by at least resolution and
+    #  updated by a file access.
+    #  add NTFS_atime_resolution to account for float resolution factors
+    #  Comment on resolution/2 in atimes_runner()
+    if initial.st_atime-adjusted.st_atime > FAT_atime_resolution+NTFS_atime_resolution or \
+       initial.st_mtime-adjusted.st_mtime > FAT_mtime_resolution+NTFS_atime_resolution or \
+       initial.st_atime==adjusted.st_atime or \
+       initial.st_mtime==adjusted.st_mtime or \
+       not after.st_atime-FAT_atime_resolution/2 > adjusted.st_atime:
+        return 0
+
+    os.utime(filename, (
+        initial.st_atime-NTFS_atime_resolution,
+        initial.st_mtime-NTFS_mtime_resolution))
+    adjusted = os.stat(filename)
+
+    # Check that a/mtimes actually moved back by at least resolution
+    # Note: != comparison here fails due to float rounding error
+    #  double NTFS_atime_resolution to account for float resolution factors
+    if initial.st_atime-adjusted.st_atime > NTFS_atime_resolution*2 or \
+       initial.st_mtime-adjusted.st_mtime > NTFS_mtime_resolution*2 or \
+       initial.st_atime==adjusted.st_atime or \
+       initial.st_mtime==adjusted.st_mtime:
+        return 1
+
+    return 2
 
 def has_atimes(paths):
-    """ Return True if a file created in each path supports fast atimes.
+    """ Return whether a file created in each path supports atimes and mtimes.
+        Return value is the same as used by file_has_atimes
         Note: for speed, this only tests files created at the top directory
         of each path. A safe assumption in most build environments.
         In the unusual case that any sub-directories are mounted
         on alternate file systems that don't support atimes, the build may
         fail to identify a dependency """
 
+    atimes = 2                  # start by assuming we have best atimes
     for path in paths:
         handle, filename = tempfile.mkstemp(dir=path)
         try:
@@ -177,11 +225,10 @@ def has_atimes(paths):
                 f.write('x')    # need a byte in the file for access test
             finally:
                 f.close()
-            if not file_has_atimes(filename):
-                return False
+            atimes = min(atimes, file_has_atimes(filename))
         finally:
             os.remove(filename)
-    return True
+    return atimes
 
 def has_strace():
     """ Return True if this system has strace. """
@@ -337,13 +384,13 @@ class Builder(object):
             deps_dict = {}
             # hash the dependency inputs and outputs
             for dep in deps:
-                hash = self.hasher(dep)
-                if hash is not None:
-                    deps_dict[dep] = "input-" + hash
+                hashed = self.hasher(dep)
+                if hashed is not None:
+                    deps_dict[dep] = "input-" + hashed
             for output in outputs:
-                hash = self.hasher(output)
-                if hash is not None:
-                    deps_dict[output] = "output-" + hash
+                hashed = self.hasher(output)
+                if hashed is not None:
+                    deps_dict[output] = "output-" + hashed
             self.deps[command] = deps_dict
 
     def memoize(self, command):
@@ -352,7 +399,7 @@ class Builder(object):
             exception on error. If "command" is a string (as per memoize.py)
             it's split into args using shlex.split() in a POSIX/bash style,
             otherwise it's a list of args as per run().
-    
+
             This function is for compatiblity with memoize.py and is
             deprecated. Use run() instead. """
         if isinstance(command, basestring):
@@ -400,8 +447,8 @@ class Builder(object):
         # first build a list of all the outputs from the .deps file
         outputs = []
         for command, deps in self.deps.items():
-            outputs.extend(dep for dep, hash in deps.items()
-                           if hash.startswith('output-'))
+            outputs.extend(dep for dep, hashed in deps.items()
+                           if hashed.startswith('output-'))
         outputs.append(os.path.abspath(self.depsname))
         self._deps = None
         for output in outputs:
@@ -460,65 +507,89 @@ class Builder(object):
         if not hasattr(self, '_smart_runner'):
             if has_strace():
                 self._smart_runner = self.strace_runner
-            elif has_atimes(self.dirs):
-                self._smart_runner = self.atimes_runner
             else:
-                self._smart_runner = self.always_runner
+                self.atimes = has_atimes(self.dirs)
+                if self.atimes==2:
+                    self._smart_runner = self.atimes_runner
+                elif self.atimes==1:
+                    self._smart_runner = self.atimes_runner
+                else:
+                    self._smart_runner = self.always_runner
         return self._smart_runner(*args)
 
     def _utime(self, filename, atime, mtime):
         """ Call os.utime but ignore permission errors """
         try:
-            st = os.utime(filename, (atime, mtime))
+            os.utime(filename, (atime, mtime))
         except OSError, e:
             # ignore permission errors -- we can't build with files
             # that we can't access anyway
             if e.errno != 1:
                 raise
 
-    def _age_atimes(self, filetimes, age):
-        """ Age files' atimes to be at least age old. Only adjust if the given
-            filetimes dict says it isn't that old, and return a new dict of
-            filetimes with the ages adjusted. """
+    def _age_atimes(self, filetimes):
+        """ Age files' atimes and mtimes to be at least FAT_xx_resolution old.
+            Only adjust if the given filetimes dict says it isn't that old,
+            and return a new dict of filetimes with the ages adjusted. """
         adjusted = {}
         now = time.time()
         for filename, entry in filetimes.iteritems():
-            if now - entry[0] < age:
-                entry = entry[0] - age, entry[1]
-                st = self._utime(filename, entry[0], entry[1])
+            if now-entry[0] < FAT_atime_resolution or now-entry[1] < FAT_mtime_resolution:
+                entry = entry[0] - FAT_atime_resolution, entry[1] - FAT_mtime_resolution
+                self._utime(filename, entry[0], entry[1])
             adjusted[filename] = entry
         return adjusted
 
     def atimes_runner(self, *args):
         """ Run command and return its dependencies and outputs, using before
             and after access times to determine dependencies. """
+
+        # For Python pre-2.5, ensure os.stat() returns float atimes
+        old_stat_float = os.stat_float_times()
+        os.stat_float_times(True)
+
         originals = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
-        befores = self._age_atimes(originals, 24*60*60)
+        if self.atimes == 2:
+            befores = originals
+            atime_resolution = 0
+            mtime_resolution = 0
+        else:
+            befores = self._age_atimes(originals)
+            atime_resolution = FAT_atime_resolution
+            mtime_resolution = FAT_mtime_resolution
         shell(*args, **dict(silent=False))
         afters = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
         deps = []
         outputs = []
         for name in afters:
             if name in befores:
-                # file in both befores+afters, add to outputs if mtime changed
-                if afters[name][1] > befores[name][1]:
+                # if file exists before+after && mtime changed, add to outputs
+                # Note: Can't just check that atimes > than we think they were
+                #       before because os might have rounded them to a later
+                #       date than what we think we set them to in befores.
+                #       So we make sure they're > by at least 1/2 the
+                #       resolution.  This will work for anything with a
+                #       resolution better than FAT.
+                if afters[name][1]-mtime_resolution/2 > befores[name][1]:
                     outputs.append(name)
-                elif afters[name][0] > befores[name][0]:
+                elif afters[name][0]-atime_resolution/2 > befores[name][0]:
                     # otherwise add to deps if atime changed
                     deps.append(name)
             else:
                 # file created (in afters but not befores), add as output
                 outputs.append(name)
 
-        # Restore atimes of files we didn't access: not for any functional
-        # reason -- it's just to preserve the access time for the user's info
-        for name in deps:
-            originals.pop(name)
-        for name in originals:
-            original = originals[name]
-            if original != afters.get(name, None):
-                self._utime(name, original[0], original[1])
+        if self.atimes < 2:
+            # Restore atimes of files we didn't access: not for any functional
+            # reason -- it's just to preserve the access time for the user's info
+            for name in deps:
+                originals.pop(name)
+            for name in originals:
+                original = originals[name]
+                if original != afters.get(name, None):
+                    self._utime(name, original[0], original[1])
 
+        os.stat_float_times(old_stat_float)  # restore stat_float_times value
         return deps, outputs
 
     def _is_relevant(self, fullname):
