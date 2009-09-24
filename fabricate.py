@@ -606,6 +606,15 @@ class Builder(object):
                 return True
         return False
 
+    _open_re = re.compile(r'.*open\("([^"]*)", ([^,)]*)')
+    _stat64_re = re.compile(r'.*stat64\("([^"]*)", .*')
+    _execve_re = re.compile(r'.*execve\("([^"]*)", .*')
+    _mkdir_re = re.compile(r'.*mkdir\("([^"]*)", .*')
+    _rename_re = re.compile(r'.*rename\("[^"]*", "([^"]*)"\)')
+    _kill_re = re.compile(r'.*killed by.*')
+    _chdir_re = re.compile(r'.*chdir\("([^"]*)"\)')
+    _exit_group_re = re.compile(r'.*exit_group\((.*)\).*')
+
     def _do_strace(self, args, outfile, outname):
         """ Run strace on given command args, sending output to file.
             Return (status code, list of dependencies, list of outputs). """
@@ -619,13 +628,13 @@ class Builder(object):
         outputs = set()
         for line in outfile:
             is_output = False
-            open_match = re.match(r'.*open\("([^"]*)", ([^,)]*)', line)
-            stat64_match = re.match(r'.*stat64\("([^"]*)", .*', line)
-            execve_match = re.match(r'.*execve\("([^"]*)", .*', line)
-            mkdir_match = re.match(r'.*mkdir\("([^"]*)", .*', line)
-            rename_match = re.match(r'.*rename\("[^"]*", "([^"]*)"\)', line)
+            open_match = self._open_re.match(line)
+            stat64_match = self._stat64_re.match(line)
+            execve_match = self._execve_re.match(line)
+            mkdir_match = self._mkdir_re.match(line)
+            rename_match = self._rename_re.match(line)
 
-            kill_match = re.match(r'.*killed by.*', line)
+            kill_match = self._kill_re.match(line)
             if kill_match:
                 return None, None, None
 
@@ -655,11 +664,11 @@ class Builder(object):
                     else:
                         deps.add(name)
 
-            match = re.match(r'.*chdir\("([^"]*)"\)', line)
+            match = self._chdir_re.match(line)
             if match:
                 cwd = os.path.normpath(os.path.join(cwd, match.group(1)))
 
-            match = re.match(r'.*exit_group\((.*)\).*', line)
+            match = self._exit_group_re.match(line)
             if match:
                 status = int(match.group(1))
 
