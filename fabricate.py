@@ -16,7 +16,7 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'AtimesRunner', 'Builder',
+           'Runner', 'AtimesRunner', 'StraceRunner', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
@@ -153,17 +153,6 @@ def _shell(args, input=None, silent=True, shell=False):
                              output, status)
     if silent:
         return output
-
-def has_strace():
-    """ Return True if this system has strace. """
-    if platform.system() == 'Windows':
-        # even if windows has strace, it's probably a dodgy cygwin one
-        return False
-    try:
-        subprocess.Popen('strace', stderr=subprocess.PIPE)
-        return True
-    except OSError:
-        return False
 
 def md5_hasher(filename):
     """ Return MD5 hash of given filename, or None if file doesn't exist. """
@@ -395,6 +384,116 @@ class AtimesRunner(Runner):
         os.stat_float_times(old_stat_float)  # restore stat_float_times value
         return deps, outputs
 
+class StraceRunner(Runner):
+    @staticmethod
+    def has_strace():
+        """ Return True if this system has strace. """
+        if platform.system() == 'Windows':
+            # even if windows has strace, it's probably a dodgy cygwin one
+            return False
+        try:
+            subprocess.Popen('strace', stderr=subprocess.PIPE)
+            return True
+        except OSError:
+            return False
+
+    _open_re = re.compile(r'.*open\("([^"]*)", ([^,)]*)')
+    _stat64_re = re.compile(r'.*stat64\("([^"]*)", .*')
+    _execve_re = re.compile(r'.*execve\("([^"]*)", .*')
+    _mkdir_re = re.compile(r'.*mkdir\("([^"]*)", .*')
+    _rename_re = re.compile(r'.*rename\("[^"]*", "([^"]*)"\)')
+    _kill_re = re.compile(r'.*killed by.*')
+    _chdir_re = re.compile(r'.*chdir\("([^"]*)"\)')
+    _exit_group_re = re.compile(r'.*exit_group\((.*)\).*')
+
+    def _do_strace(self, args, outfile, outname):
+        """ Run strace on given command args, sending output to file.
+            Return (status code, list of dependencies, list of outputs). """
+        shell('strace', '-fo', outname,
+              '-e', 'trace=open,stat64,execve,exit_group,chdir,mkdir,rename',
+              args, silent=False)
+
+        cwd = os.getcwd()
+        status = 0
+        deps = set()
+        outputs = set()
+        for line in outfile:
+            is_output = False
+            open_match = self._open_re.match(line)
+            stat64_match = self._stat64_re.match(line)
+            execve_match = self._execve_re.match(line)
+            mkdir_match = self._mkdir_re.match(line)
+            rename_match = self._rename_re.match(line)
+
+            kill_match = self._kill_re.match(line)
+            if kill_match:
+                return None, None, None
+
+            match = None
+            if open_match:
+                match = open_match
+                mode = match.group(2)
+                if 'O_WRONLY' in mode or 'O_RDWR' in mode:
+                    # it's an output file if opened for writing
+                    is_output = True
+            elif stat64_match:
+                match = stat64_match
+            elif execve_match:
+                match = execve_match
+            elif mkdir_match:
+                match = mkdir_match
+            elif rename_match:
+                match = rename_match
+                # the destination of a rename is an output file
+                is_output = True
+            if match:
+                name = os.path.normpath(os.path.join(cwd, match.group(1)))
+                if self._builder._is_relevant(name) \
+                       and (os.path.isfile(name)
+                            or os.path.isdir(name)
+                            or not os.path.lexists(name)):
+                    if is_output:
+                        outputs.add(name)
+                    else:
+                        deps.add(name)
+
+            match = self._chdir_re.match(line)
+            if match:
+                cwd = os.path.normpath(os.path.join(cwd, match.group(1)))
+
+            match = self._exit_group_re.match(line)
+            if match:
+                status = int(match.group(1))
+
+        return status, list(deps), list(outputs)
+
+    def __call__(self, *args):
+        """ Run command and return its dependencies and outputs, using strace
+            to determine dependencies (by looking at what files are opened or
+            modified). """
+        handle, outname = tempfile.mkstemp()
+        try:
+            try:
+                outfile = os.fdopen(handle, 'r')
+            except:
+                os.close(handle)
+                raise
+            try:
+                status, deps, outputs = self._do_strace(args, outfile, outname)
+                if status is None:
+                    raise ExecutionError(
+                        '%r was killed unexpectedly' % args[0], '', -1)
+            finally:
+                outfile.close()
+        finally:
+            os.remove(outname)
+
+        if status:
+            raise ExecutionError('%r exited with status %d'
+                                 % (os.path.basename(args[0]), status),
+                                 '', status)
+        return list(deps), list(outputs)
+
 class Builder(object):
     """ The Builder.
 
@@ -605,6 +704,8 @@ class Builder(object):
            "always_runner", or "smart_runner")."""
         if runner == 'atimes_runner':
             self.runner = AtimesRunner(self)
+        elif runner == 'strace_runner':
+            self.runner = StraceRunner(self)
         elif isinstance(runner, basestring):
             self.runner = getattr(self, runner)
         else:
@@ -618,8 +719,8 @@ class Builder(object):
             attribute, so it will usually be called only the first
             time runner() is used; after that, the selected runner
             will be called directly."""
-        if has_strace():
-            self.runner = self.strace_runner
+        if StraceRunner.has_strace():
+            self.runner = StraceRunner(self)
         else:
             self.atimes = AtimesRunner.has_atimes(self.dirs)
             if self.atimes==2:
@@ -647,101 +748,6 @@ class Builder(object):
                     continue
                 return True
         return False
-
-    _open_re = re.compile(r'.*open\("([^"]*)", ([^,)]*)')
-    _stat64_re = re.compile(r'.*stat64\("([^"]*)", .*')
-    _execve_re = re.compile(r'.*execve\("([^"]*)", .*')
-    _mkdir_re = re.compile(r'.*mkdir\("([^"]*)", .*')
-    _rename_re = re.compile(r'.*rename\("[^"]*", "([^"]*)"\)')
-    _kill_re = re.compile(r'.*killed by.*')
-    _chdir_re = re.compile(r'.*chdir\("([^"]*)"\)')
-    _exit_group_re = re.compile(r'.*exit_group\((.*)\).*')
-
-    def _do_strace(self, args, outfile, outname):
-        """ Run strace on given command args, sending output to file.
-            Return (status code, list of dependencies, list of outputs). """
-        shell('strace', '-fo', outname,
-              '-e', 'trace=open,stat64,execve,exit_group,chdir,mkdir,rename',
-              args, silent=False)
-
-        cwd = os.getcwd()
-        status = 0
-        deps = set()
-        outputs = set()
-        for line in outfile:
-            is_output = False
-            open_match = self._open_re.match(line)
-            stat64_match = self._stat64_re.match(line)
-            execve_match = self._execve_re.match(line)
-            mkdir_match = self._mkdir_re.match(line)
-            rename_match = self._rename_re.match(line)
-
-            kill_match = self._kill_re.match(line)
-            if kill_match:
-                return None, None, None
-
-            match = None
-            if open_match:
-                match = open_match
-                mode = match.group(2)
-                if 'O_WRONLY' in mode or 'O_RDWR' in mode:
-                    # it's an output file if opened for writing
-                    is_output = True
-            elif stat64_match:
-                match = stat64_match
-            elif execve_match:
-                match = execve_match
-            elif mkdir_match:
-                match = mkdir_match
-            elif rename_match:
-                match = rename_match
-                # the destination of a rename is an output file
-                is_output = True
-            if match:
-                name = os.path.normpath(os.path.join(cwd, match.group(1)))
-                if self._is_relevant(name) and (os.path.isfile(name) or
-                   os.path.isdir(name) or not os.path.lexists(name)):
-                    if is_output:
-                        outputs.add(name)
-                    else:
-                        deps.add(name)
-
-            match = self._chdir_re.match(line)
-            if match:
-                cwd = os.path.normpath(os.path.join(cwd, match.group(1)))
-
-            match = self._exit_group_re.match(line)
-            if match:
-                status = int(match.group(1))
-
-        return status, list(deps), list(outputs)
-
-    def strace_runner(self, *args):
-        """ Run command and return its dependencies and outputs, using strace
-            to determine dependencies (by looking at what files are opened or
-            modified). """
-        handle, outname = tempfile.mkstemp()
-        try:
-            try:
-                outfile = os.fdopen(handle, 'r')
-            except:
-                os.close(handle)
-                raise
-            try:
-                status, deps, outputs = self._do_strace(args, outfile, outname)
-                if status is None:
-                    raise ExecutionError(
-                        '%r was killed unexpectedly' % args[0], '', -1)
-            finally:
-                outfile.close()
-        finally:
-            os.remove(outname)
-
-        if status:
-            raise ExecutionError('%r exited with status %d'
-                                 % (os.path.basename(args[0]), status),
-                                 '', status)
-        return list(deps), list(outputs)
 
     def always_runner(self, *args):
         """ Runner that always runs given command, used as a backup in case
