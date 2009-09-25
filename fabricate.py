@@ -15,7 +15,8 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 """
 
 # so you can do "from fabricate import *" to simplify your build script
-__all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher', 'Builder',
+__all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
+           'Runner', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
@@ -299,6 +300,18 @@ def shrink_path(filename):
         filename = filename[len(prefix)+1:]
     return filename
 
+class Runner(object):
+    def __init__(self, builder):
+        self._builder = builder
+
+    def __call__(self, *args):
+        """ Run command and return (dependencies, outputs), where
+            dependencies is a list of the filenames of files that the
+            command depended on, and output is a list of the filenames
+            of files that the command modified."""
+
+        raise NotImplementedError()
+
 class Builder(object):
     """ The Builder.
 
@@ -497,10 +510,14 @@ class Builder(object):
             self._deps.pop('.deps_version', None)
 
     def set_runner(self, runner):
-        """Set the runner for this builder.  "runner" is a string selecting
-           one of the standard runners ("atimes_runner", "strace_runner",
+        """Set the runner for this builder.  "runner" is either a callable
+           compatible with the Runner class, or a string selecting one of the
+           standard runners ("atimes_runner", "strace_runner",
            "always_runner", or "smart_runner")."""
-        self.runner = getattr(self, runner)
+        if isinstance(runner, basestring):
+            self.runner = getattr(self, runner)
+        else:
+            self.runner = runner
 
     def smart_runner(self, *args):
         """ Smart command runner that selects which other command
