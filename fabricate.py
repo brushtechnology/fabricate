@@ -16,7 +16,7 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'Builder',
+           'Runner', 'AtimesRunner', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
@@ -312,6 +312,84 @@ class Runner(object):
 
         raise NotImplementedError()
 
+class AtimesRunner(Runner):
+    def _utime(self, filename, atime, mtime):
+        """ Call os.utime but ignore permission errors """
+        try:
+            os.utime(filename, (atime, mtime))
+        except OSError, e:
+            # ignore permission errors -- we can't build with files
+            # that we can't access anyway
+            if e.errno != 1:
+                raise
+
+    def _age_atimes(self, filetimes):
+        """ Age files' atimes and mtimes to be at least FAT_xx_resolution old.
+            Only adjust if the given filetimes dict says it isn't that old,
+            and return a new dict of filetimes with the ages adjusted. """
+        adjusted = {}
+        now = time.time()
+        for filename, entry in filetimes.iteritems():
+            if now-entry[0] < FAT_atime_resolution or now-entry[1] < FAT_mtime_resolution:
+                entry = entry[0] - FAT_atime_resolution, entry[1] - FAT_mtime_resolution
+                self._utime(filename, entry[0], entry[1])
+            adjusted[filename] = entry
+        return adjusted
+
+    def __call__(self, *args):
+        """ Run command and return its dependencies and outputs, using before
+            and after access times to determine dependencies. """
+
+        # For Python pre-2.5, ensure os.stat() returns float atimes
+        old_stat_float = os.stat_float_times()
+        os.stat_float_times(True)
+
+        originals = file_times(self._builder.dirs, self._builder.dirdepth,
+                               self._builder.ignoreprefix)
+        if self._builder.atimes == 2:
+            befores = originals
+            atime_resolution = 0
+            mtime_resolution = 0
+        else:
+            befores = self._age_atimes(originals)
+            atime_resolution = FAT_atime_resolution
+            mtime_resolution = FAT_mtime_resolution
+        shell(*args, **dict(silent=False))
+        afters = file_times(self._builder.dirs, self._builder.dirdepth,
+                            self._builder.ignoreprefix)
+        deps = []
+        outputs = []
+        for name in afters:
+            if name in befores:
+                # if file exists before+after && mtime changed, add to outputs
+                # Note: Can't just check that atimes > than we think they were
+                #       before because os might have rounded them to a later
+                #       date than what we think we set them to in befores.
+                #       So we make sure they're > by at least 1/2 the
+                #       resolution.  This will work for anything with a
+                #       resolution better than FAT.
+                if afters[name][1]-mtime_resolution/2 > befores[name][1]:
+                    outputs.append(name)
+                elif afters[name][0]-atime_resolution/2 > befores[name][0]:
+                    # otherwise add to deps if atime changed
+                    deps.append(name)
+            else:
+                # file created (in afters but not befores), add as output
+                outputs.append(name)
+
+        if self._builder.atimes < 2:
+            # Restore atimes of files we didn't access: not for any functional
+            # reason -- it's just to preserve the access time for the user's info
+            for name in deps:
+                originals.pop(name)
+            for name in originals:
+                original = originals[name]
+                if original != afters.get(name, None):
+                    self._utime(name, original[0], original[1])
+
+        os.stat_float_times(old_stat_float)  # restore stat_float_times value
+        return deps, outputs
+
 class Builder(object):
     """ The Builder.
 
@@ -324,7 +402,7 @@ class Builder(object):
         return a tuple of (deps, outputs), where deps is a list of abspath'd
         dependency files and outputs a list of abspath'd output files. It
         defaults to a function that just calls smart_runner, which uses
-        strace_runner or atimes_runner as it can, automatically.
+        strace_runner or AtimesRunner as it can, automatically.
     """
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
@@ -340,7 +418,7 @@ class Builder(object):
         "dirdepth" is the depth to recurse into the paths in "dirs" (default
             essentially means infinitely). Set to 1 to just look at the
             immediate paths in "dirs" and not recurse at all. This can be
-            useful to speed up the atimes_runner if you're building in a large
+            useful to speed up the AtimesRunner if you're building in a large
             tree and you don't care about all of the subdirectories.
         "ignoreprefix" prevents recursion into directories that start with
             prefix.  It defaults to '.' to ignore svn directories.
@@ -520,7 +598,9 @@ class Builder(object):
            compatible with the Runner class, or a string selecting one of the
            standard runners ("atimes_runner", "strace_runner",
            "always_runner", or "smart_runner")."""
-        if isinstance(runner, basestring):
+        if runner == 'atimes_runner':
+            self.runner = AtimesRunner(self)
+        elif isinstance(runner, basestring):
             self.runner = getattr(self, runner)
         else:
             self.runner = runner
@@ -538,9 +618,9 @@ class Builder(object):
         else:
             self.atimes = has_atimes(self.dirs)
             if self.atimes==2:
-                self.runner = self.atimes_runner
+                self.runner = AtimesRunner(self)
             elif self.atimes==1:
-                self.runner = self.atimes_runner
+                self.runner = AtimesRunner(self)
             else:
                 self.runner = self.always_runner
         return self.runner(*args)
@@ -548,81 +628,6 @@ class Builder(object):
     # The default command runner.  Override this in a subclass if you
     # want to write your own auto-dependency runner.
     runner = smart_runner
-
-    def _utime(self, filename, atime, mtime):
-        """ Call os.utime but ignore permission errors """
-        try:
-            os.utime(filename, (atime, mtime))
-        except OSError, e:
-            # ignore permission errors -- we can't build with files
-            # that we can't access anyway
-            if e.errno != 1:
-                raise
-
-    def _age_atimes(self, filetimes):
-        """ Age files' atimes and mtimes to be at least FAT_xx_resolution old.
-            Only adjust if the given filetimes dict says it isn't that old,
-            and return a new dict of filetimes with the ages adjusted. """
-        adjusted = {}
-        now = time.time()
-        for filename, entry in filetimes.iteritems():
-            if now-entry[0] < FAT_atime_resolution or now-entry[1] < FAT_mtime_resolution:
-                entry = entry[0] - FAT_atime_resolution, entry[1] - FAT_mtime_resolution
-                self._utime(filename, entry[0], entry[1])
-            adjusted[filename] = entry
-        return adjusted
-
-    def atimes_runner(self, *args):
-        """ Run command and return its dependencies and outputs, using before
-            and after access times to determine dependencies. """
-
-        # For Python pre-2.5, ensure os.stat() returns float atimes
-        old_stat_float = os.stat_float_times()
-        os.stat_float_times(True)
-
-        originals = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
-        if self.atimes == 2:
-            befores = originals
-            atime_resolution = 0
-            mtime_resolution = 0
-        else:
-            befores = self._age_atimes(originals)
-            atime_resolution = FAT_atime_resolution
-            mtime_resolution = FAT_mtime_resolution
-        shell(*args, **dict(silent=False))
-        afters = file_times(self.dirs, self.dirdepth, self.ignoreprefix)
-        deps = []
-        outputs = []
-        for name in afters:
-            if name in befores:
-                # if file exists before+after && mtime changed, add to outputs
-                # Note: Can't just check that atimes > than we think they were
-                #       before because os might have rounded them to a later
-                #       date than what we think we set them to in befores.
-                #       So we make sure they're > by at least 1/2 the
-                #       resolution.  This will work for anything with a
-                #       resolution better than FAT.
-                if afters[name][1]-mtime_resolution/2 > befores[name][1]:
-                    outputs.append(name)
-                elif afters[name][0]-atime_resolution/2 > befores[name][0]:
-                    # otherwise add to deps if atime changed
-                    deps.append(name)
-            else:
-                # file created (in afters but not befores), add as output
-                outputs.append(name)
-
-        if self.atimes < 2:
-            # Restore atimes of files we didn't access: not for any functional
-            # reason -- it's just to preserve the access time for the user's info
-            for name in deps:
-                originals.pop(name)
-            for name in originals:
-                original = originals[name]
-                if original != afters.get(name, None):
-                    self._utime(name, original[0], original[1])
-
-        os.stat_float_times(old_stat_float)  # restore stat_float_times value
-        return deps, outputs
 
     def _is_relevant(self, fullname):
         """ Return True if file is in the dependency search directories. """
