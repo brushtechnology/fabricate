@@ -496,11 +496,6 @@ class Builder(object):
             f.close()
             self._deps.pop('.deps_version', None)
 
-    def runner(self, *args):
-        """ The default command runner. Override this in a subclass if you want
-            to write your own auto-dependency runner."""
-        return self.smart_runner(*args)
-
     def smart_runner(self, *args):
         """ Smart command runner that uses strace if it can, otherwise
             access times if available, otherwise always builds. """
@@ -516,6 +511,10 @@ class Builder(object):
                 else:
                     self._smart_runner = self.always_runner
         return self._smart_runner(*args)
+
+    # The default command runner.  Override this in a subclass if you
+    # want to write your own auto-dependency runner.
+    runner = smart_runner
 
     def _utime(self, filename, atime, mtime):
         """ Call os.utime but ignore permission errors """
