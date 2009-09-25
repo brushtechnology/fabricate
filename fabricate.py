@@ -16,7 +16,8 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner', 'Builder',
+           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
+           'SmartRunner', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
@@ -501,6 +502,24 @@ class AlwaysRunner(Runner):
         shell(*args, **dict(silent=False))
         return None, None
 
+class SmartRunner(Runner):
+    def __call__(self, *args):
+        """ Smart command runner that replaces itself in self._builder.runner
+            the first time it is used.  It uses StraceRunner if it can,
+            otherwise AtimesRunner if available, otherwise AlwaysRunner. """
+
+        if StraceRunner.has_strace():
+            self._builder.runner = StraceRunner(self._builder)
+        else:
+            self._builder.atimes = AtimesRunner.has_atimes(self._builder.dirs)
+            if self._builder.atimes==2:
+                self._builder.runner = AtimesRunner(self._builder)
+            elif self._builder.atimes==1:
+                self._builder.runner = AtimesRunner(self._builder)
+            else:
+                self._builder.runner = AlwaysRunner(self._builder)
+        return self._builder.runner(*args)
+
 class Builder(object):
     """ The Builder.
 
@@ -512,8 +531,8 @@ class Builder(object):
         dependencies. It must take a program name and a list of arguments, and
         return a tuple of (deps, outputs), where deps is a list of abspath'd
         dependency files and outputs a list of abspath'd output files. It
-        defaults to a function that just calls smart_runner, which uses
-        strace_runner or AtimesRunner as it can, automatically.
+        defaults to using SmartRunner, which then automatically decides whether
+        to use StraceRunner, AtimesRunner, or AlwaysRunner.
     """
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
@@ -543,6 +562,12 @@ class Builder(object):
         """
         if runner is not None:
             self.set_runner(runner)
+        elif hasattr(self, 'runner'):
+            # For backwards compatibility, if a derived class has
+            # defined a "runner" method then use it:
+            pass
+        else:
+            self.runner = SmartRunner(self)
         if dirs is None:
             dirs = ['.']
         self.dirs = [os.path.abspath(path) for path in dirs]
@@ -715,34 +740,14 @@ class Builder(object):
             self.runner = StraceRunner(self)
         elif runner == 'always_runner':
             self.runner = AlwaysRunner(self)
+        elif runner == 'smart_runner':
+            self.runner = SmartRunner(self)
         elif isinstance(runner, basestring):
+            # For backwards compatibility, allow runner to be the
+            # name of a method in a derived class:
             self.runner = getattr(self, runner)
         else:
             self.runner = runner
-
-    def smart_runner(self, *args):
-        """ Smart command runner that selects which other command
-            runner to use based on the environment.  It uses strace if
-            it can, otherwise access times if available, otherwise
-            always builds. This method overwrites the 'runner'
-            attribute, so it will usually be called only the first
-            time runner() is used; after that, the selected runner
-            will be called directly."""
-        if StraceRunner.has_strace():
-            self.runner = StraceRunner(self)
-        else:
-            self.atimes = AtimesRunner.has_atimes(self.dirs)
-            if self.atimes==2:
-                self.runner = AtimesRunner(self)
-            elif self.atimes==1:
-                self.runner = AtimesRunner(self)
-            else:
-                self.runner = AlwaysRunner(self)
-        return self.runner(*args)
-
-    # The default command runner.  Override this in a subclass if you
-    # want to write your own auto-dependency runner.
-    runner = smart_runner
 
     def _is_relevant(self, fullname):
         """ Return True if file is in the dependency search directories. """
