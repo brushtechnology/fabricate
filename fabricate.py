@@ -327,10 +327,14 @@ class Builder(object):
         strace_runner or atimes_runner as it can, automatically.
     """
 
-    def __init__(self, dirs=None, dirdepth=100, ignoreprefix='.',
+    def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
                  hasher=md5_hasher, depsname='.deps', quiet=False):
         """ Initialise a Builder with the given options.
 
+        "runner" specifies how programs should be run.  It is either a
+            callable compatible with the Runner class, or a string selecting
+            one of the standard runners ("atimes_runner", "strace_runner",
+            "always_runner", or "smart_runner").
         "dirs" is a list of paths to look for dependencies (or outputs) in
             if using the strace or atimes runners.
         "dirdepth" is the depth to recurse into the paths in "dirs" (default
@@ -348,6 +352,8 @@ class Builder(object):
         "quiet" set to True tells the builder to not display the commands being
             executed (or other non-error output).
         """
+        if runner is not None:
+            self.set_runner(runner)
         if dirs is None:
             dirs = ['.']
         self.dirs = [os.path.abspath(path) for path in dirs]
@@ -737,7 +743,7 @@ class Builder(object):
 default_builder = Builder()
 default_command = 'build'
 
-def setup(builder=None, default=None, runner=None, **kwargs):
+def setup(builder=None, default=None, **kwargs):
     """ Setup the default Builder (or an instance of given builder if "builder"
         is not None) with the same keyword arguments as for Builder().
         "default" is the name of the default function to run when the build
@@ -748,8 +754,6 @@ def setup(builder=None, default=None, runner=None, **kwargs):
     if default is not None:
         default_command = default
     default_builder.__init__(**kwargs)
-    if runner is not None:
-        default_builder.set_runner(runner)
 
 def run(*args):
     """ Run the given command, but only if its dependencies have changed. Uses
