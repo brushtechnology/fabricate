@@ -16,7 +16,7 @@ copyright (c) 2009 Brush Technology. Full text of the license is here:
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'AtimesRunner', 'StraceRunner', 'Builder',
+           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner', 'Builder',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
@@ -494,6 +494,13 @@ class StraceRunner(Runner):
                                  '', status)
         return list(deps), list(outputs)
 
+class AlwaysRunner(Runner):
+    def __call__(self, *args):
+        """ Runner that always runs given command, used as a backup in case
+            a system doesn't have strace or atimes. """
+        shell(*args, **dict(silent=False))
+        return None, None
+
 class Builder(object):
     """ The Builder.
 
@@ -706,6 +713,8 @@ class Builder(object):
             self.runner = AtimesRunner(self)
         elif runner == 'strace_runner':
             self.runner = StraceRunner(self)
+        elif runner == 'always_runner':
+            self.runner = AlwaysRunner(self)
         elif isinstance(runner, basestring):
             self.runner = getattr(self, runner)
         else:
@@ -728,7 +737,7 @@ class Builder(object):
             elif self.atimes==1:
                 self.runner = AtimesRunner(self)
             else:
-                self.runner = self.always_runner
+                self.runner = AlwaysRunner(self)
         return self.runner(*args)
 
     # The default command runner.  Override this in a subclass if you
@@ -748,12 +757,6 @@ class Builder(object):
                     continue
                 return True
         return False
-
-    def always_runner(self, *args):
-        """ Runner that always runs given command, used as a backup in case
-            a system doesn't have strace or atimes. """
-        shell(*args, **dict(silent=False))
-        return None, None
 
 # default Builder instance, used by helper run() and main() helper functions
 default_builder = Builder()
