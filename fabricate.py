@@ -286,13 +286,14 @@ class AtimesRunner(Runner):
                 os.remove(filename)
         return atimes
 
-    def _file_times(self, path, depth, ignoreprefix='.'):
+    def _file_times(self, path, depth):
         """ Helper function for file_times().
             Return a dict of file times, recursing directories that don't
-            start with ignoreprefix """
+            start with self._builder.ignoreprefix """
 
         names = os.listdir(path)
         times = {}
+        ignoreprefix = self._builder.ignoreprefix
         for name in names:
             if ignoreprefix and name.startswith(ignoreprefix):
                 continue
@@ -300,22 +301,23 @@ class AtimesRunner(Runner):
             st = os.stat(fullname)
             if stat.S_ISDIR(st.st_mode):
                 if depth > 1:
-                    times.update(self._file_times(fullname, depth-1,
-                                                  ignoreprefix))
+                    times.update(self._file_times(fullname, depth-1))
             elif stat.S_ISREG(st.st_mode):
                 times[fullname] = st.st_atime, st.st_mtime
         return times
 
-    def file_times(self, paths, depth=100, ignoreprefix='.'):
+    def file_times(self):
         """ Return a dict of "filepath: (atime, mtime)" entries for each file
-            in given paths list. "filepath" is the absolute path, "atime" is
+            in self._builder.dirs. "filepath" is the absolute path, "atime" is
             the access time, "mtime" the modification time.
-            Recurse directories that don't start with ignoreprefix """
+            Recurse directories that don't start with
+            self._builder.ignoreprefix and have depth less than
+            self._builder.dirdepth. """
 
         times = {}
-        for path in paths:
-            times.update(self._file_times(os.path.abspath(path), depth,
-                                          ignoreprefix))
+        for path in self._builder.dirs:
+            times.update(self._file_times(os.path.abspath(path),
+                                          self._builder.dirdepth))
         return times
 
     def _utime(self, filename, atime, mtime):
@@ -349,8 +351,7 @@ class AtimesRunner(Runner):
         old_stat_float = os.stat_float_times()
         os.stat_float_times(True)
 
-        originals = self.file_times(self._builder.dirs, self._builder.dirdepth,
-                                    self._builder.ignoreprefix)
+        originals = self.file_times()
         if self._builder.atimes == 2:
             befores = originals
             atime_resolution = 0
@@ -360,8 +361,7 @@ class AtimesRunner(Runner):
             atime_resolution = FAT_atime_resolution
             mtime_resolution = FAT_mtime_resolution
         shell(*args, **dict(silent=False))
-        afters = self.file_times(self._builder.dirs, self._builder.dirdepth,
-                                 self._builder.ignoreprefix)
+        afters = self.file_times()
         deps = []
         outputs = []
         for name in afters:
