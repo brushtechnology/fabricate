@@ -154,83 +154,6 @@ def _shell(args, input=None, silent=True, shell=False):
     if silent:
         return output
 
-def access_file(filename):
-    """ Access (read a byte from) file to try to update its access time. """
-    f = open(filename)
-    f.read(1)
-    f.close()
-
-def file_has_atimes(filename):
-    """ Return whether the given filesystem supports access time updates for
-        this file. Return:
-          - 0 if no a/mtimes not updated
-          - 1 if the atime resolution is at least one day and
-            the mtime resolution at least 2 seconds (as on FAT filesystems)
-          - 2 if the atime and mtime resolutions are both < ms
-            (NTFS filesystem has 100 ns resolution). """
-    initial = os.stat(filename)
-    os.utime(filename, (
-        initial.st_atime-FAT_atime_resolution,
-        initial.st_mtime-FAT_mtime_resolution))
-
-    adjusted = os.stat(filename)
-    access_file(filename)
-    after = os.stat(filename)
-
-    # Check that a/mtimes actually moved back by at least resolution and
-    #  updated by a file access.
-    #  add NTFS_atime_resolution to account for float resolution factors
-    #  Comment on resolution/2 in atimes_runner()
-    if initial.st_atime-adjusted.st_atime > FAT_atime_resolution+NTFS_atime_resolution or \
-       initial.st_mtime-adjusted.st_mtime > FAT_mtime_resolution+NTFS_atime_resolution or \
-       initial.st_atime==adjusted.st_atime or \
-       initial.st_mtime==adjusted.st_mtime or \
-       not after.st_atime-FAT_atime_resolution/2 > adjusted.st_atime:
-        return 0
-
-    os.utime(filename, (
-        initial.st_atime-NTFS_atime_resolution,
-        initial.st_mtime-NTFS_mtime_resolution))
-    adjusted = os.stat(filename)
-
-    # Check that a/mtimes actually moved back by at least resolution
-    # Note: != comparison here fails due to float rounding error
-    #  double NTFS_atime_resolution to account for float resolution factors
-    if initial.st_atime-adjusted.st_atime > NTFS_atime_resolution*2 or \
-       initial.st_mtime-adjusted.st_mtime > NTFS_mtime_resolution*2 or \
-       initial.st_atime==adjusted.st_atime or \
-       initial.st_mtime==adjusted.st_mtime:
-        return 1
-
-    return 2
-
-def has_atimes(paths):
-    """ Return whether a file created in each path supports atimes and mtimes.
-        Return value is the same as used by file_has_atimes
-        Note: for speed, this only tests files created at the top directory
-        of each path. A safe assumption in most build environments.
-        In the unusual case that any sub-directories are mounted
-        on alternate file systems that don't support atimes, the build may
-        fail to identify a dependency """
-
-    atimes = 2                  # start by assuming we have best atimes
-    for path in paths:
-        handle, filename = tempfile.mkstemp(dir=path)
-        try:
-            try:
-                f = os.fdopen(handle, 'wb')
-            except:
-                os.close(handle)
-                raise
-            try:
-                f.write('x')    # need a byte in the file for access test
-            finally:
-                f.close()
-            atimes = min(atimes, file_has_atimes(filename))
-        finally:
-            os.remove(filename)
-    return atimes
-
 def has_strace():
     """ Return True if this system has strace. """
     if platform.system() == 'Windows':
@@ -241,36 +164,6 @@ def has_strace():
         return True
     except OSError:
         return False
-
-def _file_times(path, depth, ignoreprefix='.'):
-    """ Helper function for file_times().
-        Return a dict of file times, recursing directories that don't
-        start with ignoreprefix """
-
-    names = os.listdir(path)
-    times = {}
-    for name in names:
-        if ignoreprefix and name.startswith(ignoreprefix):
-            continue
-        fullname = os.path.join(path, name)
-        st = os.stat(fullname)
-        if stat.S_ISDIR(st.st_mode):
-            if depth > 1:
-                times.update(_file_times(fullname, depth-1, ignoreprefix))
-        elif stat.S_ISREG(st.st_mode):
-            times[fullname] = st.st_atime, st.st_mtime
-    return times
-
-def file_times(paths, depth=100, ignoreprefix='.'):
-    """ Return a dict of "filepath: (atime, mtime)" entries for each file in
-        given paths list. "filepath" is the absolute path, "atime" is the
-        access time, "mtime" the modification time.
-        Recurse directories that don't start with ignoreprefix """
-
-    times = {}
-    for path in paths:
-        times.update(_file_times(os.path.abspath(path), depth, ignoreprefix))
-    return times
 
 def md5_hasher(filename):
     """ Return MD5 hash of given filename, or None if file doesn't exist. """
@@ -313,6 +206,118 @@ class Runner(object):
         raise NotImplementedError()
 
 class AtimesRunner(Runner):
+    @staticmethod
+    def file_has_atimes(filename):
+        """ Return whether the given filesystem supports access time updates for
+            this file. Return:
+              - 0 if no a/mtimes not updated
+              - 1 if the atime resolution is at least one day and
+                the mtime resolution at least 2 seconds (as on FAT filesystems)
+              - 2 if the atime and mtime resolutions are both < ms
+                (NTFS filesystem has 100 ns resolution). """
+
+        def access_file(filename):
+            """ Access (read a byte from) file to try to update its access time. """
+            f = open(filename)
+            f.read(1)
+            f.close()
+
+        initial = os.stat(filename)
+        os.utime(filename, (
+            initial.st_atime-FAT_atime_resolution,
+            initial.st_mtime-FAT_mtime_resolution))
+
+        adjusted = os.stat(filename)
+        access_file(filename)
+        after = os.stat(filename)
+
+        # Check that a/mtimes actually moved back by at least resolution and
+        #  updated by a file access.
+        #  add NTFS_atime_resolution to account for float resolution factors
+        #  Comment on resolution/2 in atimes_runner()
+        if initial.st_atime-adjusted.st_atime > FAT_atime_resolution+NTFS_atime_resolution or \
+           initial.st_mtime-adjusted.st_mtime > FAT_mtime_resolution+NTFS_atime_resolution or \
+           initial.st_atime==adjusted.st_atime or \
+           initial.st_mtime==adjusted.st_mtime or \
+           not after.st_atime-FAT_atime_resolution/2 > adjusted.st_atime:
+            return 0
+
+        os.utime(filename, (
+            initial.st_atime-NTFS_atime_resolution,
+            initial.st_mtime-NTFS_mtime_resolution))
+        adjusted = os.stat(filename)
+
+        # Check that a/mtimes actually moved back by at least resolution
+        # Note: != comparison here fails due to float rounding error
+        #  double NTFS_atime_resolution to account for float resolution factors
+        if initial.st_atime-adjusted.st_atime > NTFS_atime_resolution*2 or \
+           initial.st_mtime-adjusted.st_mtime > NTFS_mtime_resolution*2 or \
+           initial.st_atime==adjusted.st_atime or \
+           initial.st_mtime==adjusted.st_mtime:
+            return 1
+
+        return 2
+
+    @staticmethod
+    def has_atimes(paths):
+        """ Return whether a file created in each path supports atimes and mtimes.
+            Return value is the same as used by file_has_atimes
+            Note: for speed, this only tests files created at the top directory
+            of each path. A safe assumption in most build environments.
+            In the unusual case that any sub-directories are mounted
+            on alternate file systems that don't support atimes, the build may
+            fail to identify a dependency """
+
+        atimes = 2                  # start by assuming we have best atimes
+        for path in paths:
+            handle, filename = tempfile.mkstemp(dir=path)
+            try:
+                try:
+                    f = os.fdopen(handle, 'wb')
+                except:
+                    os.close(handle)
+                    raise
+                try:
+                    f.write('x')    # need a byte in the file for access test
+                finally:
+                    f.close()
+                atimes = min(atimes, AtimesRunner.file_has_atimes(filename))
+            finally:
+                os.remove(filename)
+        return atimes
+
+    def _file_times(self, path, depth, ignoreprefix='.'):
+        """ Helper function for file_times().
+            Return a dict of file times, recursing directories that don't
+            start with ignoreprefix """
+
+        names = os.listdir(path)
+        times = {}
+        for name in names:
+            if ignoreprefix and name.startswith(ignoreprefix):
+                continue
+            fullname = os.path.join(path, name)
+            st = os.stat(fullname)
+            if stat.S_ISDIR(st.st_mode):
+                if depth > 1:
+                    times.update(self._file_times(fullname, depth-1,
+                                                  ignoreprefix))
+            elif stat.S_ISREG(st.st_mode):
+                times[fullname] = st.st_atime, st.st_mtime
+        return times
+
+    def file_times(self, paths, depth=100, ignoreprefix='.'):
+        """ Return a dict of "filepath: (atime, mtime)" entries for each file
+            in given paths list. "filepath" is the absolute path, "atime" is
+            the access time, "mtime" the modification time.
+            Recurse directories that don't start with ignoreprefix """
+
+        times = {}
+        for path in paths:
+            times.update(self._file_times(os.path.abspath(path), depth,
+                                          ignoreprefix))
+        return times
+
     def _utime(self, filename, atime, mtime):
         """ Call os.utime but ignore permission errors """
         try:
@@ -344,8 +349,8 @@ class AtimesRunner(Runner):
         old_stat_float = os.stat_float_times()
         os.stat_float_times(True)
 
-        originals = file_times(self._builder.dirs, self._builder.dirdepth,
-                               self._builder.ignoreprefix)
+        originals = self.file_times(self._builder.dirs, self._builder.dirdepth,
+                                    self._builder.ignoreprefix)
         if self._builder.atimes == 2:
             befores = originals
             atime_resolution = 0
@@ -355,8 +360,8 @@ class AtimesRunner(Runner):
             atime_resolution = FAT_atime_resolution
             mtime_resolution = FAT_mtime_resolution
         shell(*args, **dict(silent=False))
-        afters = file_times(self._builder.dirs, self._builder.dirdepth,
-                            self._builder.ignoreprefix)
+        afters = self.file_times(self._builder.dirs, self._builder.dirdepth,
+                                 self._builder.ignoreprefix)
         deps = []
         outputs = []
         for name in afters:
@@ -616,7 +621,7 @@ class Builder(object):
         if has_strace():
             self.runner = self.strace_runner
         else:
-            self.atimes = has_atimes(self.dirs)
+            self.atimes = AtimesRunner.has_atimes(self.dirs)
             if self.atimes==2:
                 self.runner = AtimesRunner(self)
             elif self.atimes==1:
