@@ -497,20 +497,24 @@ class Builder(object):
             self._deps.pop('.deps_version', None)
 
     def smart_runner(self, *args):
-        """ Smart command runner that uses strace if it can, otherwise
-            access times if available, otherwise always builds. """
-        if not hasattr(self, '_smart_runner'):
-            if has_strace():
-                self._smart_runner = self.strace_runner
+        """ Smart command runner that selects which other command
+            runner to use based on the environment.  It uses strace if
+            it can, otherwise access times if available, otherwise
+            always builds. This method overwrites the 'runner'
+            attribute, so it will usually be called only the first
+            time runner() is used; after that, the selected runner
+            will be called directly."""
+        if has_strace():
+            self.runner = self.strace_runner
+        else:
+            self.atimes = has_atimes(self.dirs)
+            if self.atimes==2:
+                self.runner = self.atimes_runner
+            elif self.atimes==1:
+                self.runner = self.atimes_runner
             else:
-                self.atimes = has_atimes(self.dirs)
-                if self.atimes==2:
-                    self._smart_runner = self.atimes_runner
-                elif self.atimes==1:
-                    self._smart_runner = self.atimes_runner
-                else:
-                    self._smart_runner = self.always_runner
-        return self._smart_runner(*args)
+                self.runner = self.always_runner
+        return self.runner(*args)
 
     # The default command runner.  Override this in a subclass if you
     # want to write your own auto-dependency runner.
