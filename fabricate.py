@@ -496,6 +496,12 @@ class Builder(object):
             f.close()
             self._deps.pop('.deps_version', None)
 
+    def set_runner(self, runner):
+        """Set the runner for this builder.  "runner" is a string selecting
+           one of the standard runners ("atimes_runner", "strace_runner",
+           "always_runner", or "smart_runner")."""
+        self.runner = getattr(self, runner)
+
     def smart_runner(self, *args):
         """ Smart command runner that selects which other command
             runner to use based on the environment.  It uses strace if
@@ -726,7 +732,7 @@ def setup(builder=None, default=None, runner=None, **kwargs):
         default_command = default
     default_builder.__init__(**kwargs)
     if runner is not None:
-        default_builder.runner = getattr(default_builder, runner)
+        default_builder.set_runner(runner)
 
 def run(*args):
     """ Run the given command, but only if its dependencies have changed. Uses
