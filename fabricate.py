@@ -729,25 +729,27 @@ class Builder(object):
             f.close()
             self._deps.pop('.deps_version', None)
 
+    _runner_map = {
+        'atimes_runner' : AtimesRunner,
+        'strace_runner' : StraceRunner,
+        'always_runner' : AlwaysRunner,
+        'smart_runner' : SmartRunner,
+        }
+
     def set_runner(self, runner):
         """Set the runner for this builder.  "runner" is either a callable
            compatible with the Runner class, or a string selecting one of the
            standard runners ("atimes_runner", "strace_runner",
            "always_runner", or "smart_runner")."""
-        if runner == 'atimes_runner':
-            self.runner = AtimesRunner(self)
-        elif runner == 'strace_runner':
-            self.runner = StraceRunner(self)
-        elif runner == 'always_runner':
-            self.runner = AlwaysRunner(self)
-        elif runner == 'smart_runner':
-            self.runner = SmartRunner(self)
-        elif isinstance(runner, basestring):
-            # For backwards compatibility, allow runner to be the
-            # name of a method in a derived class:
-            self.runner = getattr(self, runner)
-        else:
-            self.runner = runner
+        try:
+            self.runner = self._runner_map[runner](self)
+        except KeyError:
+            if isinstance(runner, basestring):
+                # For backwards compatibility, allow runner to be the
+                # name of a method in a derived class:
+                self.runner = getattr(self, runner)
+            else:
+                self.runner = runner
 
     def _is_relevant(self, fullname):
         """ Return True if file is in the dependency search directories. """
