@@ -839,7 +839,7 @@ def main(globals_dict=None):
     parser, options, actions = parse_options(usage)
     if not actions:
         actions = [default_command]
-    
+
     status = 0
     try:
         for action in actions:
