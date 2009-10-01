@@ -183,6 +183,11 @@ def shrink_path(filename):
         filename = filename[len(prefix)+1:]
     return filename
 
+class RunnerUnsupportedException(Exception):
+    """ Exception raise by Runner constructor if it is not supported
+        on the current platform."""
+    pass
+
 class Runner(object):
     def __call__(self, *args):
         """ Run command and return (dependencies, outputs), where
@@ -387,6 +392,8 @@ class AtimesRunner(Runner):
 
 class StraceRunner(Runner):
     def __init__(self, builder):
+        if not StraceRunner.has_strace():
+            raise RunnerUnsupportedException('strace is not available')
         self._builder = builder
 
     @staticmethod
@@ -517,9 +524,9 @@ class SmartRunner(Runner):
             the first time it is used.  It uses StraceRunner if it can,
             otherwise AtimesRunner if available, otherwise AlwaysRunner. """
 
-        if StraceRunner.has_strace():
+        try:
             self._builder.runner = StraceRunner(self._builder)
-        else:
+        except RunnerUnsupportedException:
             self._builder.atimes = AtimesRunner.has_atimes(self._builder.dirs)
             if self._builder.atimes==2:
                 self._builder.runner = AtimesRunner(self._builder)
