@@ -184,9 +184,6 @@ def shrink_path(filename):
     return filename
 
 class Runner(object):
-    def __init__(self, builder):
-        self._builder = builder
-
     def __call__(self, *args):
         """ Run command and return (dependencies, outputs), where
             dependencies is a list of the filenames of files that the
@@ -196,6 +193,9 @@ class Runner(object):
         raise NotImplementedError()
 
 class AtimesRunner(Runner):
+    def __init__(self, builder):
+        self._builder = builder
+
     @staticmethod
     def file_has_atimes(filename):
         """ Return whether the given filesystem supports access time updates for
@@ -386,6 +386,9 @@ class AtimesRunner(Runner):
         return deps, outputs
 
 class StraceRunner(Runner):
+    def __init__(self, builder):
+        self._builder = builder
+
     @staticmethod
     def has_strace():
         """ Return True if this system has strace. """
@@ -496,6 +499,9 @@ class StraceRunner(Runner):
         return list(deps), list(outputs)
 
 class AlwaysRunner(Runner):
+    def __init__(self, builder):
+        pass
+
     def __call__(self, *args):
         """ Runner that always runs given command, used as a backup in case
             a system doesn't have strace or atimes. """
@@ -503,6 +509,9 @@ class AlwaysRunner(Runner):
         return None, None
 
 class SmartRunner(Runner):
+    def __init__(self, builder):
+        self._builder = builder
+
     def __call__(self, *args):
         """ Smart command runner that replaces itself in self._builder.runner
             the first time it is used.  It uses StraceRunner if it can,
