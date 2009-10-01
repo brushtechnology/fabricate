@@ -200,6 +200,10 @@ class Runner(object):
 class AtimesRunner(Runner):
     def __init__(self, builder):
         self._builder = builder
+        self.atimes = AtimesRunner.has_atimes(self._builder.dirs)
+        if self.atimes == 0:
+            raise RunnerUnsupportedException(
+                'atimes are not supported on this platform')
 
     @staticmethod
     def file_has_atimes(filename):
@@ -347,7 +351,7 @@ class AtimesRunner(Runner):
         os.stat_float_times(True)
 
         originals = self.file_times()
-        if self._builder.atimes == 2:
+        if self.atimes == 2:
             befores = originals
             atime_resolution = 0
             mtime_resolution = 0
@@ -377,7 +381,7 @@ class AtimesRunner(Runner):
                 # file created (in afters but not befores), add as output
                 outputs.append(name)
 
-        if self._builder.atimes < 2:
+        if self.atimes < 2:
             # Restore atimes of files we didn't access: not for any functional
             # reason -- it's just to preserve the access time for the user's info
             for name in deps:
@@ -527,13 +531,11 @@ class SmartRunner(Runner):
         try:
             self._builder.runner = StraceRunner(self._builder)
         except RunnerUnsupportedException:
-            self._builder.atimes = AtimesRunner.has_atimes(self._builder.dirs)
-            if self._builder.atimes==2:
+            try:
                 self._builder.runner = AtimesRunner(self._builder)
-            elif self._builder.atimes==1:
-                self._builder.runner = AtimesRunner(self._builder)
-            else:
+            except RunnerUnsupportedException:
                 self._builder.runner = AlwaysRunner(self._builder)
+
         return self._builder.runner(*args)
 
 class Builder(object):
