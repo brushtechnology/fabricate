@@ -767,7 +767,8 @@ class Builder(object):
                 # name of a method in a derived class:
                 self.runner = getattr(self, runner)
             else:
-                self.runner = runner
+                # pass builder to runner class to get a runner instance
+                self.runner = runner(self)
 
     def _is_relevant(self, fullname):
         """ Return True if file is in the dependency search directories. """
