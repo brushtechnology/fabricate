@@ -541,16 +541,18 @@ class SmartRunner(Runner):
 class Builder(object):
     """ The Builder.
 
-        You can subclass this and override the "runner" function to do what you
-        want. For an example, see:
-            http://code.google.com/p/fabricate/wiki/HowtoSubclassBuilder
+        You may supply a "runner" class to change the way commands are run
+        or dependencies are determined. For an example, see:
+            http://code.google.com/p/fabricate/wiki/HowtoMakeYourOwnRunner
 
-        "runner" is the function used to run commands and generate
-        dependencies. It must take a program name and a list of arguments, and
-        return a tuple of (deps, outputs), where deps is a list of abspath'd
-        dependency files and outputs a list of abspath'd output files. It
-        defaults to using SmartRunner, which then automatically decides whether
-        to use StraceRunner, AtimesRunner, or AlwaysRunner.
+        A "runner" must be a subclass of Runner and must have a __call__()
+        function that takes a command as a list of args and returns a tuple of
+        (deps, outputs), where deps is a list of abspath'd dependency files
+        and outputs a list of abspath'd output files. The default runner is
+        SmartRunner, which automatically picks one of StraceRunner,
+        AtimesRunner, or AlwaysRunner depending on your system.
+        A "runner" class may have an __init__() function that takes the
+        builder as a parameter.
     """
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
