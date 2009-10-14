@@ -24,7 +24,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
 __version__ = '1.08'
 
 # if version of .deps file has changed, we know to not use it
-deps_version = 1
+deps_version = 2
 
 import atexit
 import optparse
@@ -80,6 +80,8 @@ except ImportError:
 def printerr(message):
     """ Print given message to stderr with a line feed. """
     print >>sys.stderr, message
+
+class PathError(Exception): pass
 
 class ExecutionError(Exception):
     """ Raised by shell() and run() if command returns non-zero exit code. """
@@ -258,6 +260,12 @@ class AtimesRunner(Runner):
         return 2
 
     @staticmethod
+    def exists(path):
+        if not os.path.exists(path):
+            # Note: in linux, error may not occur: strace runner doesn't check
+            raise PathError("build dirs specified a non-existant path '%s'" % path)
+
+    @staticmethod
     def has_atimes(paths):
         """ Return whether a file created in each path supports atimes and mtimes.
             Return value is the same as used by file_has_atimes
@@ -269,6 +277,7 @@ class AtimesRunner(Runner):
 
         atimes = 2                  # start by assuming we have best atimes
         for path in paths:
+            AtimesRunner.exists(path)
             handle, filename = tempfile.mkstemp(dir=path)
             try:
                 try:
@@ -290,6 +299,7 @@ class AtimesRunner(Runner):
             Return a dict of file times, recursing directories that don't
             start with self._builder.ignoreprefix """
 
+        AtimesRunner.exists(path)
         names = os.listdir(path)
         times = {}
         ignoreprefix = self._builder.ignoreprefix
@@ -315,8 +325,7 @@ class AtimesRunner(Runner):
 
         times = {}
         for path in self._builder.dirs:
-            times.update(self._file_times(os.path.abspath(path),
-                                          self._builder.dirdepth))
+            times.update(self._file_times(path, self._builder.dirdepth))
         return times
 
     def _utime(self, filename, atime, mtime):
@@ -547,9 +556,9 @@ class Builder(object):
 
         A "runner" must be a subclass of Runner and must have a __call__()
         function that takes a command as a list of args and returns a tuple of
-        (deps, outputs), where deps is a list of abspath'd dependency files
-        and outputs a list of abspath'd output files. The default runner is
-        SmartRunner, which automatically picks one of StraceRunner,
+        (deps, outputs), where deps is a list of rel-path'd dependency files
+        and outputs is a list of rel-path'd output files. The default runner
+        is SmartRunner, which automatically picks one of StraceRunner,
         AtimesRunner, or AlwaysRunner depending on your system.
         A "runner" class may have an __init__() function that takes the
         builder as a parameter.
@@ -590,7 +599,7 @@ class Builder(object):
             self.runner = SmartRunner(self)
         if dirs is None:
             dirs = ['.']
-        self.dirs = [os.path.abspath(path) for path in dirs]
+        self.dirs = dirs
         self.dirdepth = dirdepth
         self.ignoreprefix = ignoreprefix
         self.depsname = depsname
@@ -702,7 +711,7 @@ class Builder(object):
         for command, deps in self.deps.items():
             outputs.extend(dep for dep, hashed in deps.items()
                            if hashed.startswith('output-'))
-        outputs.append(os.path.abspath(self.depsname))
+        outputs.append(self.depsname)
         self._deps = None
         for output in outputs:
             try:
@@ -717,7 +726,7 @@ class Builder(object):
         """ Lazy load .deps file so that instantiating a Builder is "safe". """
         if not hasattr(self, '_deps') or self._deps is None:
             self.read_deps()
-            atexit.register(self.write_deps)
+            atexit.register(self.write_deps, depsname=os.path.abspath(self.depsname))
         return self._deps
 
     def read_deps(self):
@@ -737,12 +746,14 @@ class Builder(object):
         except IOError:
             self._deps = {}
 
-    def write_deps(self):
+    def write_deps(self, depsname=None):
         """ Write out deps object into JSON dependency file. """
         if self._deps is None:
             return                      # we've cleaned so nothing to save
         self.deps['.deps_version'] = deps_version
-        f = open(self.depsname, 'w')
+        if depsname is None:
+            depsname = self.depsname
+        f = open(depsname, 'w')
         try:
             json.dump(self.deps, f, indent=4, sort_keys=True)
         finally:
@@ -838,28 +849,40 @@ def parse_options(usage):
     if options.time:
         default_builder.hasher = mtime_hasher
     if options.dir:
-        default_builder.dirs.extend(os.path.abspath(d) for d in options.dir)
+        default_builder.dirs += options.dir
     if options.clean:
         default_builder.autoclean()
     return parser, options, args
 
-def main(globals_dict=None):
+def main(globals_dict=None, build_dir=None):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
         value as its status code. """
-    if globals_dict is None:
-        try:
-            globals_dict = sys._getframe(1).f_globals
-        except:
-            printerr("Your Python version doesn't support sys._getframe(1),")
-            printerr("call main(globals()) explicitly")
-            sys.exit(1)
 
     usage = '[options] build script functions to run'
     parser, options, actions = parse_options(usage)
     if not actions:
         actions = [default_command]
+
+    original_path = os.getcwd()
+    if None in [globals_dict, build_dir]:
+        try:
+            frame = sys._getframe(1)
+        except:
+            printerr("Your Python version doesn't support sys._getframe(1),")
+            printerr("call main(globals(), build_dir) explicitly")
+            sys.exit(1)
+        if globals_dict is None:
+            globals_dict = frame.f_globals
+        if build_dir is None:
+            build_file = frame.f_globals.get('__file__', None)
+            if build_file:
+                build_dir = os.path.dirname(build_file)
+    if build_dir is not None:
+        if not options.quiet and os.path.abspath(build_dir) != original_path:
+            print "Entering directory '%s'" % build_dir
+        os.chdir(build_dir)
 
     status = 0
     try:
@@ -877,6 +900,10 @@ def main(globals_dict=None):
     except ExecutionError, exc:
         message, data, status = exc
         printerr('fabricate: ' + message)
+    finally:
+        if not options.quiet and os.path.abspath(build_dir) != original_path:
+            print "Leaving directory '%s' back to '%s'" % (build_dir, original_path)
+        os.chdir(original_path)
     sys.exit(status)
 
 if __name__ == '__main__':
