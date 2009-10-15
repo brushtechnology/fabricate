@@ -879,7 +879,7 @@ def main(globals_dict=None, build_dir=None):
             build_file = frame.f_globals.get('__file__', None)
             if build_file:
                 build_dir = os.path.dirname(build_file)
-    if build_dir is not None:
+    if build_dir:
         if not options.quiet and os.path.abspath(build_dir) != original_path:
             print "Entering directory '%s'" % build_dir
         os.chdir(build_dir)
