@@ -21,7 +21,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.08'
+__version__ = '1.09'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -175,15 +175,6 @@ def mtime_hasher(filename):
         return repr(st.st_mtime)
     except (IOError, OSError):
         return None
-
-def shrink_path(filename):
-    """ Try to shrink a filename for display (remove the leading path if the
-        file is relative to the current working directory). """
-    cwd = os.getcwd()
-    prefix = os.path.commonprefix([cwd, filename])
-    if prefix:
-        filename = filename[len(prefix)+1:]
-    return filename
 
 class RunnerUnsupportedException(Exception):
     """ Exception raise by Runner constructor if it is not supported
@@ -437,7 +428,8 @@ class StraceRunner(Runner):
               '-e', 'trace=open,stat64,execve,exit_group,chdir,mkdir,rename',
               args, silent=False)
 
-        cwd = os.getcwd()
+        cwds = []                   # stack of cwd's pushed each process nest
+        cwd = '.'
         status = 0
         deps = set()
         outputs = set()
@@ -463,6 +455,7 @@ class StraceRunner(Runner):
             elif stat64_match:
                 match = stat64_match
             elif execve_match:
+                cwds.append(cwd)
                 match = execve_match
             elif mkdir_match:
                 match = mkdir_match
@@ -471,7 +464,9 @@ class StraceRunner(Runner):
                 # the destination of a rename is an output file
                 is_output = True
             if match:
-                name = os.path.normpath(os.path.join(cwd, match.group(1)))
+                name = match.group(1)
+                if cwd != '.':
+                    name = os.path.join(cwd, name)
                 if self._builder._is_relevant(name) \
                        and (os.path.isfile(name)
                             or os.path.isdir(name)
@@ -483,10 +478,11 @@ class StraceRunner(Runner):
 
             match = self._chdir_re.match(line)
             if match:
-                cwd = os.path.normpath(os.path.join(cwd, match.group(1)))
+                cwd = os.path.join(cwd, match.group(1))
 
             match = self._exit_group_re.match(line)
             if match:
+                cwd = cwds.pop()
                 status = int(match.group(1))
 
         return status, list(deps), list(outputs)
@@ -621,7 +617,7 @@ class Builder(object):
             this function, the exception is passed in if an OSError occurs
             while deleting a file. """
         if error is None:
-            self.echo('deleting %s' % shrink_path(filename))
+            self.echo('deleting %s' % filename)
 
     def run(self, *args):
         """ Run command given in args as per shell(), but only if its
@@ -785,7 +781,11 @@ class Builder(object):
 
     def _is_relevant(self, fullname):
         """ Return True if file is in the dependency search directories. """
+
+        # need to abspath to compare rel paths with abs
+        fullname = os.path.abspath(fullname)
         for path in self.dirs:
+            path = os.path.abspath(path)
             if fullname.startswith(path):
                 rest = fullname[len(path):]
                 # files in dirs starting with ignoreprefix are not relevant
