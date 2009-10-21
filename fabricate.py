@@ -42,7 +42,7 @@ FAT_atime_resolution = 24*60*60     # resolution on FAT filesystems (seconds)
 FAT_mtime_resolution = 2
 
 # NTFS resolution is < 1 ms
-#  We assume this is considerably more than time to run a new process
+# We assume this is considerably more than time to run a new process
 
 NTFS_atime_resolution = 0.0002048   # resolution on NTFS filesystems (seconds)
 NTFS_mtime_resolution = 0.0002048   #  is actually 0.1us but python's can be
