@@ -297,7 +297,10 @@ class AtimesRunner(Runner):
         for name in names:
             if ignoreprefix and name.startswith(ignoreprefix):
                 continue
-            fullname = os.path.join(path, name)
+            if path == '.':
+                fullname = name
+            else:
+                fullname = os.path.join(path, name)
             st = os.stat(fullname)
             if stat.S_ISDIR(st.st_mode):
                 if depth > 1:
