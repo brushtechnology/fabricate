@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 """ Build tool that finds dependencies automatically for any language.
 
 fabricate is a build tool that finds dependencies automatically for any
