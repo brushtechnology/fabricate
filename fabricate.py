@@ -23,7 +23,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.10'
+__version__ = '1.11'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -381,7 +381,8 @@ class AtimesRunner(Runner):
                     outputs.append(name)
                 elif afters[name][0]-atime_resolution/2 > befores[name][0]:
                     # otherwise add to deps if atime changed
-                    deps.append(name)
+                    if not self._builder.ignore.search(name):
+                        deps.append(name)
             else:
                 # file created (in afters but not befores), add as output
                 outputs.append(name)
@@ -479,7 +480,8 @@ class StraceRunner(Runner):
                     if is_output:
                         outputs.add(name)
                     else:
-                        deps.add(name)
+                        if not self._builder.ignore.search(name):
+                            deps.add(name)
 
             match = self._chdir_re.match(line)
             if match:
@@ -568,7 +570,8 @@ class Builder(object):
     """
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
-                 hasher=md5_hasher, depsname='.deps', quiet=False):
+                 ignore=None, hasher=md5_hasher, depsname='.deps',
+                 quiet=False):
         """ Initialise a Builder with the given options.
 
         "runner" specifies how programs should be run.  It is either a
@@ -585,6 +588,10 @@ class Builder(object):
         "ignoreprefix" prevents recursion into directories that start with
             prefix.  It defaults to '.' to ignore svn directories.
             Change it to '_svn' if you use _svn hidden directories.
+        "ignore" is a regular expression.  Any dependency that contains a
+            regex match is ignored and not put into the dependency list.
+            Note that the regex may be VERBOSE (spaces are ignored and # line
+            comments allowed -- use \ prefix to insert these characters)
         "hasher" is a function which returns a string which changes when
             the contents of its filename argument changes, or None on error.
             Default is md5_hasher, but can also be mtime_hasher.
@@ -605,6 +612,9 @@ class Builder(object):
         self.dirs = dirs
         self.dirdepth = dirdepth
         self.ignoreprefix = ignoreprefix
+        if ignore is None:
+            ignore = r'$x^'         # something that can't match
+        self.ignore = re.compile(ignore, re.VERBOSE)
         self.depsname = depsname
         self.hasher = hasher
         self.quiet = quiet
