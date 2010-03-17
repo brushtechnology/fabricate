@@ -23,7 +23,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.09'
+__version__ = '1.10'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -532,21 +532,23 @@ class AlwaysRunner(Runner):
 class SmartRunner(Runner):
     def __init__(self, builder):
         self._builder = builder
+        self._runner = None
 
     def __call__(self, *args):
-        """ Smart command runner that replaces itself in self._builder.runner
-            the first time it is used.  It uses StraceRunner if it can,
-            otherwise AtimesRunner if available, otherwise AlwaysRunner. """
+        """ Smart command runner that uses StraceRunner if it can,
+            otherwise AtimesRunner if available, otherwise AlwaysRunner.
+            When first called, it caches which runner it used for next time."""
 
-        try:
-            self._builder.runner = StraceRunner(self._builder)
-        except RunnerUnsupportedException:
+        if self._runner is None:
             try:
-                self._builder.runner = AtimesRunner(self._builder)
+                self._runner = StraceRunner(self._builder)
             except RunnerUnsupportedException:
-                self._builder.runner = AlwaysRunner(self._builder)
+                try:
+                    self._runner = AtimesRunner(self._builder)
+                except RunnerUnsupportedException:
+                    self._runner = AlwaysRunner(self._builder)
 
-        return self._builder.runner(*args)
+        return self._runner(*args)
 
 class Builder(object):
     """ The Builder.
@@ -769,8 +771,8 @@ class Builder(object):
         }
 
     def set_runner(self, runner):
-        """Set the runner for this builder.  "runner" is either a callable
-           compatible with the Runner class, or a string selecting one of the
+        """Set the runner for this builder.  "runner" is either a Runner
+           subclass (e.g. SmartRunner), or a string selecting one of the
            standard runners ("atimes_runner", "strace_runner",
            "always_runner", or "smart_runner")."""
         try:
