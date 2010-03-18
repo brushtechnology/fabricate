@@ -23,7 +23,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.11'
+__version__ = '1.12'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -189,8 +189,11 @@ class Runner(object):
             dependencies is a list of the filenames of files that the
             command depended on, and output is a list of the filenames
             of files that the command modified."""
-
         raise NotImplementedError()
+    def ignore(self, name):
+        return self._builder.ignore.search(name)
+
+
 
 class AtimesRunner(Runner):
     def __init__(self, builder):
@@ -381,11 +384,12 @@ class AtimesRunner(Runner):
                     outputs.append(name)
                 elif afters[name][0]-atime_resolution/2 > befores[name][0]:
                     # otherwise add to deps if atime changed
-                    if not self._builder.ignore.search(name):
+                    if not self.ignore(name):
                         deps.append(name)
             else:
                 # file created (in afters but not befores), add as output
-                outputs.append(name)
+                if not self.ignore(name):
+                    outputs.append(name)
 
         if self.atimes < 2:
             # Restore atimes of files we didn't access: not for any functional
@@ -477,10 +481,10 @@ class StraceRunner(Runner):
                        and (os.path.isfile(name)
                             or os.path.isdir(name)
                             or not os.path.lexists(name)):
-                    if is_output:
-                        outputs.add(name)
-                    else:
-                        if not self._builder.ignore.search(name):
+                    if not self.ignore(name):
+                        if is_output:
+                            outputs.add(name)
+                        else:
                             deps.add(name)
 
             match = self._chdir_re.match(line)
