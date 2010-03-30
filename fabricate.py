@@ -23,7 +23,7 @@ __all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
            'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
 
 # fabricate version number
-__version__ = '1.12'
+__version__ = '1.13'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -404,11 +404,30 @@ class AtimesRunner(Runner):
         os.stat_float_times(old_stat_float)  # restore stat_float_times value
         return deps, outputs
 
+class StraceProcess(object):
+    def __init__(self, cwd='.'):
+        self.cwd = cwd
+        self.deps = set()
+        self.outputs = set()
+
+    def add_dep(self, dep):
+        self.deps.add(dep)
+
+    def add_output(self, output):
+        self.outputs.add(output)
+
+    def __str__(self):
+        return '<StraceProcess cwd=%s deps=%s outputs=%s>' % \
+               (self.cwd, self.deps, self.outputs)
+
 class StraceRunner(Runner):
+    keep_temps = False
+
     def __init__(self, builder):
         if not StraceRunner.has_strace():
             raise RunnerUnsupportedException('strace is not available')
         self._builder = builder
+        self.temp_count = 0
 
     @staticmethod
     def has_strace():
@@ -422,79 +441,116 @@ class StraceRunner(Runner):
         except OSError:
             return False
 
-    _open_re = re.compile(r'.*open\("([^"]*)", ([^,)]*)')
-    _stat64_re = re.compile(r'.*stat64\("([^"]*)", .*')
-    _execve_re = re.compile(r'.*execve\("([^"]*)", .*')
-    _mkdir_re = re.compile(r'.*mkdir\("([^"]*)", .*')
-    _rename_re = re.compile(r'.*rename\("[^"]*", "([^"]*)"\)')
-    _kill_re = re.compile(r'.*killed by.*')
-    _chdir_re = re.compile(r'.*chdir\("([^"]*)"\)')
-    _exit_group_re = re.compile(r'.*exit_group\((.*)\).*')
+    # Regular expressions for parsing of strace log
+    _open_re       = re.compile(r'(?P<pid>\d+)\s+open\("(?P<name>[^"]*)", (?P<mode>[^,)]*)')
+    _stat64_re     = re.compile(r'(?P<pid>\d+)\s+stat64\("(?P<name>[^"]*)", .*')
+    _execve_re     = re.compile(r'(?P<pid>\d+)\s+execve\("(?P<name>[^"]*)", .*')
+    _mkdir_re      = re.compile(r'(?P<pid>\d+)\s+mkdir\("(?P<name>[^"]*)", .*')
+    _rename_re     = re.compile(r'(?P<pid>\d+)\s+rename\("[^"]*", "(?P<name>[^"]*)"\)')
+    _kill_re       = re.compile(r'(?P<pid>\d+)\s+killed by.*')
+    _chdir_re      = re.compile(r'(?P<pid>\d+)\s+chdir\("(?P<cwd>[^"]*)"\)')
+    _exit_group_re = re.compile(r'(?P<pid>\d+)\s+exit_group\((?P<status>.*)\).*')
+    _clone_re      = re.compile(r'(?P<pid_clone>\d+)\s+(clone|fork|vfork)\(.*\)\s*=\s*(?P<pid>\d*)')
+
+    # Regular expressions for detecting interrupted lines in strace log
+    # 3618  clone( <unfinished ...>
+    # 3618  <... clone resumed> child_stack=0, flags=CLONE, child_tidptr=0x7f83deffa780) = 3622
+    _unfinished_start_re = re.compile(r'(?P<pid>\d+)(?P<body>.*)<unfinished ...>$')
+    _unfinished_end_re   = re.compile(r'(?P<pid>\d+)\s+\<\.\.\..*\>(?P<body>.*)')
 
     def _do_strace(self, args, outfile, outname):
         """ Run strace on given command args, sending output to file.
             Return (status code, list of dependencies, list of outputs). """
-        shell('strace', '-fo', outname,
-              '-e', 'trace=open,stat64,execve,exit_group,chdir,mkdir,rename',
+        shell('strace', '-fo', outname, '-e',
+              'trace=open,stat64,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork',
               args, silent=False)
-
-        cwds = []                   # stack of cwd's pushed each process nest
-        cwd = '.'
+        cwd = '.' 
         status = 0
-        deps = set()
-        outputs = set()
+        processes  = {}  # dictionary of processes (key = pid)
+        unfinished = {}  # list of interrupted entries in strace log
         for line in outfile:
+            # look for split lines
+            unfinished_start_match = self._unfinished_start_re.match(line)
+            unfinished_end_match = self._unfinished_end_re.match(line)
+            if unfinished_start_match:
+                pid = unfinished_start_match.group('pid')
+                body = unfinished_start_match.group('body')
+                unfinished[pid] = pid + ' ' + body
+                continue
+            elif unfinished_end_match:
+                pid = unfinished_end_match.group('pid')
+                body = unfinished_end_match.group('body')
+                line = unfinished[pid] + body
+                del unfinished[pid]
+
             is_output = False
             open_match = self._open_re.match(line)
             stat64_match = self._stat64_re.match(line)
             execve_match = self._execve_re.match(line)
             mkdir_match = self._mkdir_re.match(line)
             rename_match = self._rename_re.match(line)
+            clone_match = self._clone_re.match(line)  
 
             kill_match = self._kill_re.match(line)
             if kill_match:
                 return None, None, None
 
             match = None
-            if open_match:
+            if execve_match:
+                pid = execve_match.group('pid')
+                if pid not in processes:
+                    processes[pid] = StraceProcess()
+                    match = execve_match
+            elif clone_match:
+                pid = clone_match.group('pid')
+                pid_clone = clone_match.group('pid_clone')
+                processes[pid] = StraceProcess(processes[pid_clone].cwd)
+            elif open_match:
                 match = open_match
-                mode = match.group(2)
+                mode = match.group('mode')
                 if 'O_WRONLY' in mode or 'O_RDWR' in mode:
                     # it's an output file if opened for writing
                     is_output = True
             elif stat64_match:
                 match = stat64_match
-            elif execve_match:
-                cwds.append(cwd)
-                match = execve_match
             elif mkdir_match:
-                match = mkdir_match
+                match = mkdir_match                
             elif rename_match:
                 match = rename_match
                 # the destination of a rename is an output file
                 is_output = True
+                
             if match:
-                name = match.group(1)
+                name = match.group('name')
+                pid  = match.group('pid')
+                cwd = processes[pid].cwd
                 if cwd != '.':
                     name = os.path.join(cwd, name)
-                if self._builder._is_relevant(name) \
-                       and (os.path.isfile(name)
-                            or os.path.isdir(name)
-                            or not os.path.lexists(name)):
-                    if not self.ignore(name):
-                        if is_output:
-                            outputs.add(name)
-                        else:
-                            deps.add(name)
+
+                if (self._builder._is_relevant(name)
+                    and not self.ignore(name)
+                    and (os.path.isfile(name)
+                         or os.path.isdir(name)
+                         or not os.path.lexists(name))):
+                    if is_output:
+                        processes[pid].add_output(name)
+                    else:
+                        processes[pid].add_dep(name)
 
             match = self._chdir_re.match(line)
             if match:
-                cwd = os.path.join(cwd, match.group(1))
+                processes[pid].cwd = os.path.join(processes[pid].cwd, match.group('cwd'))
 
             match = self._exit_group_re.match(line)
             if match:
-                cwd = cwds.pop()
-                status = int(match.group(1))
+                status = int(match.group('status'))
+
+        # collect outputs and dependencies from all processes
+        deps = set()
+        outputs = set()
+        for pid, process in processes.items():
+            deps = deps.union(process.deps)
+            outputs = outputs.union(process.outputs)
 
         return status, list(deps), list(outputs)
 
@@ -502,7 +558,13 @@ class StraceRunner(Runner):
         """ Run command and return its dependencies and outputs, using strace
             to determine dependencies (by looking at what files are opened or
             modified). """
-        handle, outname = tempfile.mkstemp()
+        if self.keep_temps:
+            outname = 'strace%03d.txt' % self.temp_count
+            self.temp_count += 1
+            handle = os.open(outname, os.O_CREAT)
+        else:
+            handle, outname = tempfile.mkstemp()
+
         try:
             try:
                 outfile = os.fdopen(handle, 'r')
@@ -517,7 +579,8 @@ class StraceRunner(Runner):
             finally:
                 outfile.close()
         finally:
-            os.remove(outname)
+            if self.keep_temps:
+                os.remove(outname)
 
         if status:
             raise ExecutionError('%r exited with status %d'
@@ -865,6 +928,8 @@ def parse_options(usage):
                       help='autoclean build outputs before running')
     parser.add_option('-q', '--quiet', action='store_true',
                       help="don't echo commands, only print errors")
+    parser.add_option('-k', '--keep', action='store_false',
+                      help='keep temporary strace output files')
     options, args = parser.parse_args()
     default_builder.quiet = options.quiet
     if options.time:
@@ -873,6 +938,8 @@ def parse_options(usage):
         default_builder.dirs += options.dir
     if options.clean:
         default_builder.autoclean()
+    if options.keep:
+        StraceRunner.keep_temps = options.keep
     return parser, options, args
 
 def main(globals_dict=None, build_dir=None):
