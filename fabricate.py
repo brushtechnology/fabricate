@@ -424,25 +424,39 @@ class StraceRunner(Runner):
     keep_temps = False
 
     def __init__(self, builder):
-        if not StraceRunner.has_strace():
+        self.strace_version = StraceRunner.get_strace_version()
+        if self.strace_version == 0:
             raise RunnerUnsupportedException('strace is not available')
+        if self.strace_version == 32:
+            self._stat_re = self._stat32_re
+            self._stat_func = 'stat'
+        else:
+            self._stat_re = self._stat64_re
+            self._stat_func = 'stat64'
         self._builder = builder
         self.temp_count = 0
 
     @staticmethod
-    def has_strace():
-        """ Return True if this system has strace. """
+    def get_strace_version():
+        """ Return 0 if this system doesn't have strace, nonzero otherwise
+            (64 if strace supports stat64, 32 otherwise). """
         if platform.system() == 'Windows':
             # even if windows has strace, it's probably a dodgy cygwin one
-            return False
+            return 0
         try:
-            subprocess.Popen('strace', stderr=subprocess.PIPE)
-            return True
+            proc = subprocess.Popen(['strace', '-e', 'trace=stat64'], stderr=subprocess.PIPE)
+            stdout, stderr = proc.communicate()
+            proc.wait()
+            if 'invalid system call' in stderr:
+                return 32
+            else:
+                return 64
         except OSError:
-            return False
+            return 0
 
     # Regular expressions for parsing of strace log
     _open_re       = re.compile(r'(?P<pid>\d+)\s+open\("(?P<name>[^"]*)", (?P<mode>[^,)]*)')
+    _stat32_re     = re.compile(r'(?P<pid>\d+)\s+stat\("(?P<name>[^"]*)", .*')
     _stat64_re     = re.compile(r'(?P<pid>\d+)\s+stat64\("(?P<name>[^"]*)", .*')
     _execve_re     = re.compile(r'(?P<pid>\d+)\s+execve\("(?P<name>[^"]*)", .*')
     _mkdir_re      = re.compile(r'(?P<pid>\d+)\s+mkdir\("(?P<name>[^"]*)", .*')
@@ -462,7 +476,7 @@ class StraceRunner(Runner):
         """ Run strace on given command args, sending output to file.
             Return (status code, list of dependencies, list of outputs). """
         shell('strace', '-fo', outname, '-e',
-              'trace=open,stat64,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork',
+              'trace=open,%s,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork' % self._stat_func,
               args, silent=False)
         cwd = '.' 
         status = 0
@@ -485,7 +499,7 @@ class StraceRunner(Runner):
 
             is_output = False
             open_match = self._open_re.match(line)
-            stat64_match = self._stat64_re.match(line)
+            stat_match = self._stat_re.match(line)
             execve_match = self._execve_re.match(line)
             mkdir_match = self._mkdir_re.match(line)
             rename_match = self._rename_re.match(line)
@@ -511,8 +525,8 @@ class StraceRunner(Runner):
                 if 'O_WRONLY' in mode or 'O_RDWR' in mode:
                     # it's an output file if opened for writing
                     is_output = True
-            elif stat64_match:
-                match = stat64_match
+            elif stat_match:
+                match = stat_match
             elif mkdir_match:
                 match = mkdir_match                
             elif rename_match:
