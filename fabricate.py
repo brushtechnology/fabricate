@@ -915,8 +915,8 @@ def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
     return default_builder.outofdate(command)
 
-def parse_options(usage):
-    """ Parse command line options and return parser and args. """
+def parse_options(usage, extra_options=None):
+    """ Parse command line options and return (parser, options, args). """
     parser = optparse.OptionParser(usage='Usage: %prog '+usage,
                                    version='%prog '+__version__)
     parser.disable_interspersed_args()
@@ -930,6 +930,10 @@ def parse_options(usage):
                       help="don't echo commands, only print errors")
     parser.add_option('-k', '--keep', action='store_false',
                       help='keep temporary strace output files')
+    if extra_options:
+        # add any user-specified options passed in via main()
+        for option in extra_options:
+            parser.add_option(option)
     options, args = parser.parse_args()
     default_builder.quiet = options.quiet
     if options.time:
@@ -942,14 +946,19 @@ def parse_options(usage):
         StraceRunner.keep_temps = options.keep
     return parser, options, args
 
-def main(globals_dict=None, build_dir=None):
+def main(globals_dict=None, build_dir=None, extra_options=None):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
-        value as its status code. """
+        value as its status code.
 
+        extra_options is an optional list of options created with
+        optparse.make_option(). The pseudo-global variable main.options
+        is set to the parsed options list.
+    """
     usage = '[options] build script functions to run'
-    parser, options, actions = parse_options(usage)
+    parser, options, actions = parse_options(usage, extra_options)
+    main.options = options
     if not actions:
         actions = [default_command]
 
