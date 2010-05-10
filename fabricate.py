@@ -593,7 +593,7 @@ class StraceRunner(Runner):
             finally:
                 outfile.close()
         finally:
-            if self.keep_temps:
+            if not self.keep_temps:
                 os.remove(outname)
 
         if status:
@@ -942,7 +942,7 @@ def parse_options(usage, extra_options=None):
                       help='autoclean build outputs before running')
     parser.add_option('-q', '--quiet', action='store_true',
                       help="don't echo commands, only print errors")
-    parser.add_option('-k', '--keep', action='store_false',
+    parser.add_option('-k', '--keep', action='store_true',
                       help='keep temporary strace output files')
     if extra_options:
         # add any user-specified options passed in via main()
