@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-""" Build tool that finds dependencies automatically for any language.
+"""Build tool that finds dependencies automatically for any language.
 
 fabricate is a build tool that finds dependencies automatically for any
 language. It's small and just works. No hidden stuff behind your back. It was
@@ -14,16 +14,14 @@ Like memoize, fabricate is released under a "New BSD license". fabricate is
 copyright (c) 2009 Brush Technology. Full text of the license is here:
     http://code.google.com/p/fabricate/wiki/License
 
+To get help on fabricate functions:
+    from fabricate import *
+    help(function)
+
 """
 
-# so you can do "from fabricate import *" to simplify your build script
-__all__ = ['ExecutionError', 'shell', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
-           'SmartRunner', 'Builder',
-           'setup', 'run', 'autoclean', 'memoize', 'outofdate', 'main']
-
 # fabricate version number
-__version__ = '1.13'
+__version__ = '1.14'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -39,6 +37,19 @@ import subprocess
 import sys
 import tempfile
 import time
+
+# so you can do "from fabricate import *" to simplify your build script
+__all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
+           'memoize', 'outofdate', 
+           'ExecutionError', 'md5_hasher', 'mtime_hasher',
+           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
+           'SmartRunner', 'Builder']
+
+import textwrap
+
+__doc__ += "Exported functions are:\n" + '  ' + '\n  '.join(textwrap.wrap(', '.join(__all__), 80))
+
+
 
 FAT_atime_resolution = 24*60*60     # resolution on FAT filesystems (seconds)
 FAT_mtime_resolution = 2
@@ -910,6 +921,7 @@ def setup(builder=None, default=None, **kwargs):
     if default is not None:
         default_command = default
     default_builder.__init__(**kwargs)
+setup.__doc__ += '\n\n' + Builder.__init__.__doc__
 
 def run(*args):
     """ Run the given command, but only if its dependencies have changed. Uses
@@ -959,6 +971,24 @@ def parse_options(usage, extra_options=None):
     if options.keep:
         StraceRunner.keep_temps = options.keep
     return parser, options, args
+
+def fabricate_version(min=None, max=None):
+    """ If min is given, assert that the running fabricate is at least that
+        version or exit with an error message. If max is given, assert that
+        the running fabricate is at most that version. Return the current
+        fabricate version string. This function was introduced in v1.14;
+        for prior versions, the version string is available only as module
+        local string fabricate.__version__ """
+
+    if min is not None and float(__version__) < min:
+        sys.stderr.write(("fabricate is version %s.  This build script "
+            "requires at least version %.2f") % (__version__, min))
+        sys.exit()
+    if max is not None and float(__version__) > max:
+        sys.stderr.write(("fabricate is version %s.  This build script "
+            "requires at most version %.2f") % (__version__, max))
+        sys.exit()
+    return __version__
 
 def main(globals_dict=None, build_dir=None, extra_options=None):
     """ Run the default function or the function(s) named in the command line
