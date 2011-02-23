@@ -596,6 +596,7 @@ class StraceRunner(Runner):
         """ Run command and return its dependencies and outputs, using strace
             to determine dependencies (by looking at what files are opened or
             modified). """
+        ignore_status = kwargs.pop('ignore_status', False)
         if self.keep_temps:
             outname = 'strace%03d.txt' % self.temp_count
             self.temp_count += 1
@@ -620,7 +621,7 @@ class StraceRunner(Runner):
             if not self.keep_temps:
                 os.remove(outname)
 
-        if status:
+        if status and not ignore_status:
             raise ExecutionError('%r exited with status %d'
                                  % (os.path.basename(args[0]), status),
                                  '', status)
