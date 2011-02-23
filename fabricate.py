@@ -136,12 +136,14 @@ def shell(*args, **kwargs):
             string, or False to print it as it comes out
         "shell" set to True will run the command via the shell (/bin/sh or
             COMSPEC) instead of running the command directly (the default)
+        "ignore_status" set to True means ignore command status code -- i.e.,
+            don't raise an ExecutionError on nonzero status code
 
         Raises ExecutionError(message, output, status) if the command returns
         a non-zero status code. """
     return _shell(args, **kwargs)
 
-def _shell(args, input=None, silent=True, shell=False):
+def _shell(args, input=None, silent=True, shell=False, ignore_status=False):
     if input:
         stdin = subprocess.PIPE
     else:
@@ -169,7 +171,7 @@ def _shell(args, input=None, silent=True, shell=False):
         raise e
     output, stderr = proc.communicate(input)
     status = proc.wait()
-    if status:
+    if status and not ignore_status:
         raise ExecutionError('%r exited with status %d'
                              % (os.path.basename(arglist[0]), status),
                              output, status)
