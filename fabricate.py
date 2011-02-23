@@ -679,7 +679,7 @@ class Builder(object):
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
                  ignore=None, hasher=md5_hasher, depsname='.deps',
-                 quiet=False, debug=False):
+                 quiet=False, debug=False, inputs_only=False):
         """ Initialise a Builder with the given options.
 
         "runner" specifies how programs should be run.  It is either a
@@ -708,6 +708,8 @@ class Builder(object):
             executed (or other non-error output).
         "debug" set to True makes the builder print debug output, such as why
             particular commands are being executed
+        "inputs_only" set to True makes builder only re-build if input hashes
+            have changed (ignores output hashes)
         """
         if runner is not None:
             self.set_runner(runner)
@@ -729,6 +731,7 @@ class Builder(object):
         self.hasher = hasher
         self.quiet = quiet
         self.debug = debug
+        self.inputs_only = inputs_only
         self.checking = False
 
     def echo(self, message):
@@ -827,7 +830,7 @@ class Builder(object):
                     self.echo_debug("rebuilding %r, %s %s doesn't exist" %
                                     (command, io_type, dep))
                     break
-                if newhash != oldhash:
+                if newhash != oldhash and (not self.inputs_only or io_type == 'input'):
                     self.echo_debug("rebuilding %r, hash for %s %s (%s) != old hash (%s)" %
                                     (command, io_type, dep, newhash, oldhash))
                     break
