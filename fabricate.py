@@ -709,7 +709,8 @@ class Builder(object):
         "debug" set to True makes the builder print debug output, such as why
             particular commands are being executed
         "inputs_only" set to True makes builder only re-build if input hashes
-            have changed (ignores output hashes)
+            have changed (ignores output hashes); use with tools that touch
+            files that shouldn't cause a rebuild; e.g. g++ collect phase
         """
         if runner is not None:
             self.set_runner(runner)
