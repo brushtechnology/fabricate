@@ -678,7 +678,7 @@ class Builder(object):
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
                  ignore=None, hasher=md5_hasher, depsname='.deps',
-                 quiet=False):
+                 quiet=False, debug=False):
         """ Initialise a Builder with the given options.
 
         "runner" specifies how programs should be run.  It is either a
@@ -705,6 +705,8 @@ class Builder(object):
         "depsname" is the name of the JSON dependency file to load/save.
         "quiet" set to True tells the builder to not display the commands being
             executed (or other non-error output).
+        "debug" set to True makes the builder print debug output, such as why
+            particular commands are being executed
         """
         if runner is not None:
             self.set_runner(runner)
@@ -725,6 +727,7 @@ class Builder(object):
         self.depsname = depsname
         self.hasher = hasher
         self.quiet = quiet
+        self.debug = debug
         self.checking = False
 
     def echo(self, message):
@@ -742,6 +745,11 @@ class Builder(object):
             while deleting a file. """
         if error is None:
             self.echo('deleting %s' % filename)
+
+    def echo_debug(self, message):
+        """ Print message, but only if builder is in debug mode. """
+        if self.debug:
+            print 'DEBUG:', message
 
     def run(self, *args, **kwargs):
         """ Run command given in args with kwargs per shell(), but only if its
@@ -811,14 +819,22 @@ class Builder(object):
                 assert oldhash.startswith('input-') or \
                        oldhash.startswith('output-'), \
                     "%s file corrupt, do a clean!" % self.depsname
-                oldhash = oldhash.split('-', 1)[1]
+                io_type, oldhash = oldhash.split('-', 1)
                 # make sure this dependency or output hasn't changed
                 newhash = self.hasher(dep)
-                if newhash is None or newhash != oldhash:
+                if newhash is None:
+                    self.echo_debug("rebuilding %r, %s %s doesn't exist" %
+                                    (command, io_type, dep))
+                    break
+                if newhash != oldhash:
+                    self.echo_debug("rebuilding %r, hash for %s %s (%s) != old hash (%s)" %
+                                    (command, io_type, dep, newhash, oldhash))
                     break
             else:
                 # all dependencies are unchanged
                 return False
+        else:
+            self.echo_debug('rebuilding %r, no dependency data' % command)
         # command has never been run, or one of the dependencies didn't
         # exist or had changed
         return True
@@ -969,6 +985,8 @@ def parse_options(usage, extra_options=None):
                       help='autoclean build outputs before running')
     parser.add_option('-q', '--quiet', action='store_true',
                       help="don't echo commands, only print errors")
+    parser.add_option('-D', '--debug', action='store_true',
+                      help="show debug info (why commands are rebuilt)")
     parser.add_option('-k', '--keep', action='store_true',
                       help='keep temporary strace output files')
     if extra_options:
@@ -977,6 +995,7 @@ def parse_options(usage, extra_options=None):
             parser.add_option(option)
     options, args = parser.parse_args()
     default_builder.quiet = options.quiet
+    default_builder.debug = options.debug
     if options.time:
         default_builder.hasher = mtime_hasher
     if options.dir:
