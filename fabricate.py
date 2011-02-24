@@ -21,7 +21,7 @@ To get help on fabricate functions:
 """
 
 # fabricate version number
-__version__ = '1.14'
+__version__ = '1.15'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -445,7 +445,7 @@ class StraceProcess(object):
 class StraceRunner(Runner):
     keep_temps = False
 
-    def __init__(self, builder):
+    def __init__(self, builder, build_dir=None):
         self.strace_version = StraceRunner.get_strace_version()
         if self.strace_version == 0:
             raise RunnerUnsupportedException('strace is not available')
@@ -457,6 +457,7 @@ class StraceRunner(Runner):
             self._stat_func = 'stat64'
         self._builder = builder
         self.temp_count = 0
+        self.build_dir = build_dir or os.getcwd()
 
     @staticmethod
     def get_strace_version():
@@ -564,6 +565,10 @@ class StraceRunner(Runner):
                 cwd = processes[pid].cwd
                 if cwd != '.':
                     name = os.path.join(cwd, name)
+                if name.startswith(self.build_dir):
+                    # Absolute path name under the build directory,
+                    # make it relative to build_dir for .deps file
+                    name = name[len(self.build_dir):].lstrip(os.path.sep)
 
                 if (self._builder._is_relevant(name)
                     and not self.ignore(name)
