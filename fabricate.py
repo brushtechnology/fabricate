@@ -457,7 +457,7 @@ class StraceRunner(Runner):
             self._stat_func = 'stat64'
         self._builder = builder
         self.temp_count = 0
-        self.build_dir = build_dir or os.getcwd()
+        self.build_dir = os.path.abspath(build_dir or os.getcwd())
 
     @staticmethod
     def get_strace_version():
@@ -565,10 +565,14 @@ class StraceRunner(Runner):
                 cwd = processes[pid].cwd
                 if cwd != '.':
                     name = os.path.join(cwd, name)
-                if name.startswith(self.build_dir):
-                    # Absolute path name under the build directory,
-                    # make it relative to build_dir for .deps file
-                    name = name[len(self.build_dir):].lstrip(os.path.sep)
+
+                # If it's an absolute path name under the build directory,
+                # make it relative to build_dir before saving to .deps file
+                if os.path.isabs(name):
+                    norm_name = os.path.normpath(name)
+                    if norm_name.startswith(self.build_dir):
+                        name = norm_name[len(self.build_dir):]
+                        name = name.lstrip(os.path.sep)
 
                 if (self._builder._is_relevant(name)
                     and not self.ignore(name)
