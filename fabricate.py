@@ -21,7 +21,7 @@ To get help on fabricate functions:
 """
 
 # fabricate version number
-__version__ = '1.15'
+__version__ = '1.16'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -94,7 +94,8 @@ def printerr(message):
     """ Print given message to stderr with a line feed. """
     print >>sys.stderr, message
 
-class PathError(Exception): pass
+class PathError(Exception):
+    pass
 
 class ExecutionError(Exception):
     """ Raised by shell() and run() if command returns non-zero exit code. """
@@ -210,10 +211,9 @@ class Runner(object):
             of files that the command modified. The input is passed
             to shell()"""
         raise NotImplementedError("Runner subclass called but subclass didn't define __call__")
+
     def ignore(self, name):
         return self._builder.ignore.search(name)
-
-
 
 class AtimesRunner(Runner):
     def __init__(self, builder):
@@ -767,19 +767,21 @@ class Builder(object):
 
     def run(self, *args, **kwargs):
         """ Run command given in args with kwargs per shell(), but only if its
-            dependencies or outputs have changed or don't exist. """
+            dependencies or outputs have changed or don't exist. Return tuple
+            of (command_line, deps_list, outputs_list) so caller or subclass
+            can use them. """
         arglist = args_to_list(args)
         if not arglist:
             raise TypeError('run() takes at least 1 argument (0 given)')
         # we want a command line string for the .deps file key and for display
         command = subprocess.list2cmdline(arglist)
         if not self.cmdline_outofdate(command):
-            return
+            return command, None, None
 
         # if just checking up-to-date-ness, set flag and do nothing more
         self.outofdate_flag = True
         if self.checking:
-            return
+            return command, None, None
 
         # use runner to run command and collect dependencies
         self.echo_command(command)
@@ -796,6 +798,8 @@ class Builder(object):
                 if hashed is not None:
                     deps_dict[output] = "output-" + hashed
             self.deps[command] = deps_dict
+        
+        return command, deps, outputs
 
     def memoize(self, command, **kwargs):
         """ Run the given command, but only if its dependencies have changed --
@@ -970,8 +974,8 @@ setup.__doc__ += '\n\n' + Builder.__init__.__doc__
 
 def run(*args, **kwargs):
     """ Run the given command, but only if its dependencies have changed. Uses
-        the default Builder. """
-    default_builder.run(*args, **kwargs)
+        the default Builder. Return value as per Builder.run(). """
+    return default_builder.run(*args, **kwargs)
 
 def autoclean():
     """ Automatically delete all outputs of the default build. """
