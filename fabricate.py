@@ -165,9 +165,9 @@ def _shell(args, input=None, silent=True, shell=False, ignore_status=False):
     try:
         proc = subprocess.Popen(command, stdin=stdin, stdout=stdout,
                                 stderr=subprocess.STDOUT, shell=shell)
-    except WindowsError, e:
-        # Work around the problem that windows Popen doesn't say what file it couldn't find
-        if e.errno==2 and e.filename==None:
+    except OSError, e:
+        # Work around the problem that Windows Popen doesn't say what file it couldn't find
+        if platform.system() == 'Windows' and e.errno == 2 and e.filename is None:
             e.filename = arglist[0]
         raise e
     output, stderr = proc.communicate(input)
