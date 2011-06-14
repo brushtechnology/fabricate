@@ -21,7 +21,7 @@ To get help on fabricate functions:
 """
 
 # fabricate version number
-__version__ = '1.16'
+__version__ = '1.17'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -566,13 +566,14 @@ class StraceRunner(Runner):
                 if cwd != '.':
                     name = os.path.join(cwd, name)
 
-                # If it's an absolute path name under the build directory,
+                # normalise path name to ensure files are only listed once
+                name = os.path.normpath(name)
+
+                # if it's an absolute path name under the build directory,
                 # make it relative to build_dir before saving to .deps file
-                if os.path.isabs(name):
-                    norm_name = os.path.normpath(name)
-                    if norm_name.startswith(self.build_dir):
-                        name = norm_name[len(self.build_dir):]
-                        name = name.lstrip(os.path.sep)
+                if os.path.isabs(name) and name.startswith(self.build_dir):
+                    name = name[len(self.build_dir):]
+                    name = name.lstrip(os.path.sep)
 
                 if (self._builder._is_relevant(name)
                     and not self.ignore(name)
@@ -743,6 +744,7 @@ class Builder(object):
         self.debug = debug
         self.inputs_only = inputs_only
         self.checking = False
+        self.hash_cache = {}
 
     def echo(self, message):
         """ Print message, but only if builder is not in quiet mode. """
@@ -788,15 +790,27 @@ class Builder(object):
         deps, outputs = self.runner(*arglist, **kwargs)
         if deps is not None or outputs is not None:
             deps_dict = {}
+
             # hash the dependency inputs and outputs
             for dep in deps:
-                hashed = self.hasher(dep)
+                if dep in self.hash_cache:
+                    # already hashed so don't repeat hashing work
+                    hashed = self.hash_cache[dep]
+                else:
+                    hashed = self.hasher(dep)
                 if hashed is not None:
                     deps_dict[dep] = "input-" + hashed
+                    # store hash in hash cache as it may be a new file
+                    self.hash_cache[dep] = hashed
+
             for output in outputs:
                 hashed = self.hasher(output)
                 if hashed is not None:
                     deps_dict[output] = "output-" + hashed
+                    # update hash cache as this file should already be in
+                    # there but has probably changed
+                    self.hash_cache[output] = hashed
+
             self.deps[command] = deps_dict
         
         return command, deps, outputs
@@ -838,8 +852,19 @@ class Builder(object):
                        oldhash.startswith('output-'), \
                     "%s file corrupt, do a clean!" % self.depsname
                 io_type, oldhash = oldhash.split('-', 1)
+
                 # make sure this dependency or output hasn't changed
-                newhash = self.hasher(dep)
+                if dep in self.hash_cache:
+                    # already hashed so don't repeat hashing work
+                    newhash = self.hash_cache[dep]
+                else:
+                    # not in hash_cache so make sure this dependency or
+                    # output hasn't changed
+                    newhash = self.hasher(dep)
+                    if newhash is not None:
+                       # Add newhash to the hash cache
+                       self.hash_cache[dep] = newhash
+
                 if newhash is None:
                     self.echo_debug("rebuilding %r, %s %s doesn't exist" %
                                     (command, io_type, dep))
