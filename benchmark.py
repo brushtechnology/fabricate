@@ -101,8 +101,7 @@ def link():
 def clean():
     autoclean()
 
-setup(runner='%s')
-main()
+main(runner='%s')
 """ % (',\n    '.join("'source%d'" % i for i in range(NUM_SOURCE_FILES)),
        repr(COMPILER),
        repr(COMPILER),

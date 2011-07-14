@@ -21,7 +21,7 @@ To get help on fabricate functions:
 """
 
 # fabricate version number
-__version__ = '1.17'
+__version__ = '1.19'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -40,7 +40,7 @@ import time
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
-           'memoize', 'outofdate', 
+           'memoize', 'outofdate', 'parse_options',
            'ExecutionError', 'md5_hasher', 'mtime_hasher',
            'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
            'SmartRunner', 'Builder']
@@ -981,20 +981,25 @@ class Builder(object):
         return False
 
 # default Builder instance, used by helper run() and main() helper functions
-default_builder = Builder()
+default_builder = None
 default_command = 'build'
 
+_setup_builder = None
+_setup_default = None
+_setup_kwargs = {}
+
 def setup(builder=None, default=None, **kwargs):
-    """ Setup the default Builder (or an instance of given builder if "builder"
+    """ NOTE: setup functionality is now in main(), setup() is kept for
+        backward compatibility and should not be used in new scripts.
+
+        Setup the default Builder (or an instance of given builder if "builder"
         is not None) with the same keyword arguments as for Builder().
         "default" is the name of the default function to run when the build
         script is run with no command line arguments. """
-    global default_builder, default_command
-    if builder is not None:
-        default_builder = builder()
-    if default is not None:
-        default_command = default
-    default_builder.__init__(**kwargs)
+    global _setup_builder, _setup_default, _setup_kwargs
+    _setup_builder = builder
+    _setup_default = default
+    _setup_kwargs = kwargs
 setup.__doc__ += '\n\n' + Builder.__init__.__doc__
 
 def run(*args, **kwargs):
@@ -1015,7 +1020,13 @@ def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
     return default_builder.outofdate(command)
 
-def parse_options(usage, extra_options=None):
+# save options for use by main() if parse_options called earlier by user script
+_parsed_options = None
+
+#default usage message
+_usage = '[options] build script functions to run'
+
+def parse_options(usage=_usage, extra_options=None):
     """ Parse command line options and return (parser, options, args). """
     parser = optparse.OptionParser(usage='Usage: %prog '+usage,
                                    version='%prog '+__version__)
@@ -1037,17 +1048,8 @@ def parse_options(usage, extra_options=None):
         for option in extra_options:
             parser.add_option(option)
     options, args = parser.parse_args()
-    default_builder.quiet = options.quiet
-    default_builder.debug = options.debug
-    if options.time:
-        default_builder.hasher = mtime_hasher
-    if options.dir:
-        default_builder.dirs += options.dir
-    if options.clean:
-        default_builder.autoclean()
-    if options.keep:
-        StraceRunner.keep_temps = options.keep
-    return parser, options, args
+    _parsed_options = (parser, options, args)
+    return _parsed_options
 
 def fabricate_version(min=None, max=None):
     """ If min is given, assert that the running fabricate is at least that
@@ -1067,21 +1069,48 @@ def fabricate_version(min=None, max=None):
         sys.exit()
     return __version__
 
-def main(globals_dict=None, build_dir=None, extra_options=None):
+def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
+         default=None, **kwargs):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
         value as its status code.
 
-        extra_options is an optional list of options created with
-        optparse.make_option(). The pseudo-global variable main.options
-        is set to the parsed options list.
+        "extra_options" is an optional list of options created with
+            optparse.make_option(). The pseudo-global variable main.options
+            is set to the parsed options list.
+        "builder" is the class of builder to create, default (None) is the 
+            normal builder
+        "default" is the default user script function to call, None = 'build'
+        "kwargs" is any other keyword arguments to pass to the builder
     """
-    usage = '[options] build script functions to run'
-    parser, options, actions = parse_options(usage, extra_options)
+    global default_builder, default_command
+    if _parsed_options is not None:
+        parser, options, actions = _parsed_options
+    else:
+        parser, options, actions = parse_options(extra_options=extra_options)
+    kwargs['quiet'] = options.quiet
+    kwargs['debug'] = options.debug
+    if options.time:
+        kwargs['hasher'] = mtime_hasher
+    if options.dir:
+        kwargs['dirs'] = options.dir
+    if options.clean:
+        default_builder.autoclean()
+    if options.keep:
+        StraceRunner.keep_temps = options.keep
     main.options = options
+    if default is not None:
+        default_command = default
     if not actions:
         actions = [default_command]
+    if builder is not None:
+        builder_cls = builder
+    elif _setup_builder is not None:
+        builder_cls = _setup_builder
+    else:
+        builder_cls = Builder
+    default_builder = builder_cls(**kwargs)
 
     original_path = os.getcwd()
     if None in [globals_dict, build_dir]:
