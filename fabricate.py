@@ -20,8 +20,10 @@ To get help on fabricate functions:
 
 """
 
+from __future__ import with_statement
+
 # fabricate version number
-__version__ = '1.19'
+__version__ = '1.20'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -37,10 +39,19 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading # NB uses old camelCase names for backward compatibility
+# multiprocessing module only exists on Python >= 2.6
+try:
+    import multiprocessing
+except ImportError:
+    class MultiprocessingModule(object):
+        def __getattr__(self, name):
+            raise NotImplementedError("multiprocessing module not available, can't do parallel builds")
+    multiprocessing = MultiprocessingModule()
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
-           'memoize', 'outofdate', 'parse_options',
+           'memoize', 'outofdate', 'parse_options', 'after',
            'ExecutionError', 'md5_hasher', 'mtime_hasher',
            'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
            'SmartRunner', 'Builder']
@@ -212,6 +223,10 @@ class Runner(object):
             to shell()"""
         raise NotImplementedError("Runner subclass called but subclass didn't define __call__")
 
+    def actual_runner(self):
+        """ Return the actual runner object (overriden in SmartRunner). """
+        return self
+        
     def ignore(self, name):
         return self._builder.ignore.search(name)
 
@@ -442,6 +457,10 @@ class StraceProcess(object):
         return '<StraceProcess cwd=%s deps=%s outputs=%s>' % \
                (self.cwd, self.deps, self.outputs)
 
+def _call_strace(self, *args, **kwargs):
+    """ Top level function call for Strace that can be run in parallel """
+    return self(*args, **kwargs)
+
 class StraceRunner(Runner):
     keep_temps = False
 
@@ -650,26 +669,173 @@ class AlwaysRunner(Runner):
         return None, None
 
 class SmartRunner(Runner):
+    """ Smart command runner that uses StraceRunner if it can,
+        otherwise AtimesRunner if available, otherwise AlwaysRunner. """
     def __init__(self, builder):
         self._builder = builder
-        self._runner = None
+        try:
+            self._runner = StraceRunner(self._builder)
+        except RunnerUnsupportedException:
+            try:
+                self._runner = AtimesRunner(self._builder)
+            except RunnerUnsupportedException:
+                self._runner = AlwaysRunner(self._builder)
+
+    def actual_runner(self):
+        return self._runner
 
     def __call__(self, *args, **kwargs):
-        """ Smart command runner that uses StraceRunner if it can,
-            otherwise AtimesRunner if available, otherwise AlwaysRunner.
-            When first called, it caches which runner it used for next time."""
-
-        if self._runner is None:
-            try:
-                self._runner = StraceRunner(self._builder)
-            except RunnerUnsupportedException:
-                try:
-                    self._runner = AtimesRunner(self._builder)
-                except RunnerUnsupportedException:
-                    self._runner = AlwaysRunner(self._builder)
-
         return self._runner(*args, **kwargs)
 
+class _running(object):
+    """ Represents a task put on the parallel pool 
+        and its results when complete """
+    def __init__(self, async, command):
+        """ "async" is the AsyncResult object returned from pool.apply_async
+            "command" is the command that was run """
+        self.async = async
+        self.command = command
+        self.results = None
+        
+class _after(object):
+    """ Represents something waiting on completion of some previous commands """
+    def __init__(self, afters, do):
+        """ "afters" is a group id or a iterable of group ids to wait on
+            "do" is either a tuple representing a command (group, command, 
+                arglist, kwargs) or a threading.Condition to be released """
+        self.afters = afters
+        self.do = do
+        
+class _Groups(object):
+    """ Thread safe mapping object whose values are lists of _running
+        or _after objects and a count of how many have *not* completed """
+    class value(object):
+        """ the value type in the map """
+        def __init__(self, val=None):
+            self.count = 0  # count of items not yet completed
+            self.items = [] # items in this group
+            if val is not None:
+                self.items.append(val)
+            self.ok = True  # True if no error from any command in group so far
+            
+    def __init__(self):
+        self.groups = {False: self.value()}
+        self.lock = threading.Lock()
+        
+    def item_list(self, id):
+        """ Return copy of the value list """
+        with self.lock:
+            return self.groups[id].items[:]
+    
+    def remove(self, id):
+        """ Remove the group """
+        with self.lock:
+            del self.groups[id]
+    
+    def remove_item(self, id, val):
+        with self.lock:
+            self.groups[id].items.remove(val)
+            
+    def add(self, id, val):
+        with self.lock:
+            if id in self.groups:
+                self.groups[id].items.append(val)
+            else:
+                self.groups[id] = self.value(val)
+            self.groups[id].count += 1
+    
+    def get_count(self, id):
+        with self.lock:
+            if id not in self.groups:
+                return 0
+            return self.groups[id].count
+
+    def dec_count(self, id):
+        with self.lock:
+            c = self.groups[id].count - 1
+            if c < 0:
+                raise ValueError
+            self.groups[id].count = c
+            return c
+    
+    def get_ok(self, id):
+        with self.lock:
+            return self.groups[id].ok
+    
+    def set_ok(self, id, to):
+        with self.lock:
+            self.groups[id].ok = to
+            
+    def ids(self):
+        with self.lock:
+            return self.groups.keys()
+
+# pool of processes to run parallel jobs, must not be part of any object that
+# is pickled for transfer to these processes, ie it must be global
+_pool = None
+# object holding results, must also be global
+_groups = _Groups()
+# results collecting thread
+_results = None
+_stop_results = threading.Event()
+
+class _todo(object):
+    """ holds the parameters for commands waiting on others """
+    def __init__(self, group, command, arglist, kwargs):
+        self.group = group      # which group it should run as
+        self.command = command  # string command
+        self.arglist = arglist  # command arguments
+        self.kwargs = kwargs    # keywork args for the runner
+        
+def _results_handler( builder, delay=0.01):
+    """ Body of thread that stores results in .deps and handles 'after'
+        conditions
+       "builder" the builder used """
+    try:
+        while not _stop_results.isSet():
+            # go through the lists and check any results available
+            for id in _groups.ids():
+                if id is False: continue # key of False is _afters not _runnings
+                for r in _groups.item_list(id):
+                    if r.results is None and r.async.ready():
+                        try:
+                            d, o = r.async.get()
+                        except Exception, e:
+                            r.results = e
+                            _groups.set_ok(False)
+                        else:
+                            builder.done(r.command, d, o) # save deps
+                            r.results = (r.command, d, o)
+                    _groups.dec_count(id)
+            # check if can now schedule things waiting on the after queue
+            for a in _groups.item_list(False):
+                still_to_do = sum(_groups.get_count(g) for g in a.afters)
+                no_error = all(_groups.get_ok(g) for g in a.afters)
+                if False in a.afters:
+                    still_to_do -= 1 # don't count yourself of course
+                if still_to_do == 0:
+                    if isinstance(a.do, tuple):
+                        if no_error:
+                            async = _pool.apply_async(_call_strace, a.do.arglist,
+                                        a.do.kwargs)
+                            _groups.add(a.do.group, _running(async, a.do.command))
+                    else:
+                        a.do.acquire()
+                        a.do.notify()
+                        a.do.release()
+                    _groups.remove_item(False, a)
+                    _groups.dec_count(False)
+            _stop_results.wait(delay)
+    except Exception, e:
+        printerr("Error: exception " + str(e))
+    finally:
+        if not _stop_results.isSet():
+            # oh dear, I am about to die for unexplained reasons, stop the whole
+            # app otherwise the main thread hangs waiting on non-existant me, 
+            # Note: sys.exit() only kills me
+            printerr("Error: unexpected results handler exit")
+            os._exit(1)
+        
 class Builder(object):
     """ The Builder.
 
@@ -689,7 +855,7 @@ class Builder(object):
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
                  ignore=None, hasher=md5_hasher, depsname='.deps',
-                 quiet=False, debug=False, inputs_only=False):
+                 quiet=False, debug=False, inputs_only=False, parallel_ok=False):
         """ Initialise a Builder with the given options.
 
         "runner" specifies how programs should be run.  It is either a
@@ -721,15 +887,8 @@ class Builder(object):
         "inputs_only" set to True makes builder only re-build if input hashes
             have changed (ignores output hashes); use with tools that touch
             files that shouldn't cause a rebuild; e.g. g++ collect phase
+        "parallel_ok" set to True to indicate script is safe for parallel running
         """
-        if runner is not None:
-            self.set_runner(runner)
-        elif hasattr(self, 'runner'):
-            # For backwards compatibility, if a derived class has
-            # defined a "runner" method then use it:
-            pass
-        else:
-            self.runner = SmartRunner(self)
         if dirs is None:
             dirs = ['.']
         self.dirs = dirs
@@ -746,6 +905,25 @@ class Builder(object):
         self.checking = False
         self.hash_cache = {}
 
+        # instantiate runner after the above have been set in case it needs them
+        if runner is not None:
+            self.set_runner(runner)
+        elif hasattr(self, 'runner'):
+            # For backwards compatibility, if a derived class has
+            # defined a "runner" method then use it:
+            pass
+        else:
+            self.runner = SmartRunner(self)
+
+        is_strace = isinstance(self.runner.actual_runner(), StraceRunner)
+        self.parallel_ok = parallel_ok and is_strace and _pool is not None
+        if self.parallel_ok:
+            _results = threading.Thread(target=_results_handler,
+                                        args=[self])
+            _results.setDaemon(True)
+            _results.start()
+            StraceRunner.keep_temps = False # unsafe for parallel execution
+            
     def echo(self, message):
         """ Print message, but only if builder is not in quiet mode. """
         if not self.quiet:
@@ -771,7 +949,14 @@ class Builder(object):
         """ Run command given in args with kwargs per shell(), but only if its
             dependencies or outputs have changed or don't exist. Return tuple
             of (command_line, deps_list, outputs_list) so caller or subclass
-            can use them. """
+            can use them.
+
+            Parallel operation keyword args "after" specifies a group or 
+            iterable of groups to wait for after they finish, "group" specifies 
+            the group to add this command to.
+        """
+        after = kwargs.pop('after', None)
+        group = kwargs.pop('group', True)
         arglist = args_to_list(args)
         if not arglist:
             raise TypeError('run() takes at least 1 argument (0 given)')
@@ -787,7 +972,24 @@ class Builder(object):
 
         # use runner to run command and collect dependencies
         self.echo_command(command)
-        deps, outputs = self.runner(*arglist, **kwargs)
+        if self.parallel_ok:
+            arglist.insert(0, self.runner)
+            if after is not None:
+                if not hasattr(after, '__iter__'):
+                    after = [after]
+                _groups.add(False,
+                            _after(after, _todo(group, command, arglist,
+                                                kwargs)))
+            else:
+                async = _pool.apply_async(_call_strace, arglist, kwargs)
+                _groups.add(group, _running(async, command))
+            return None
+        else:
+            deps, outputs = self.runner(*arglist, **kwargs)
+            return self.done(command, deps, outputs)
+        
+    def done(self, command, deps, outputs):
+        """ Store the results in the .deps file when they are available """
         if deps is not None or outputs is not None:
             deps_dict = {}
 
@@ -984,6 +1186,7 @@ class Builder(object):
 default_builder = None
 default_command = 'build'
 
+# save the setup arguments for use by main()
 _setup_builder = None
 _setup_default = None
 _setup_kwargs = {}
@@ -1004,9 +1207,36 @@ setup.__doc__ += '\n\n' + Builder.__init__.__doc__
 
 def run(*args, **kwargs):
     """ Run the given command, but only if its dependencies have changed. Uses
-        the default Builder. Return value as per Builder.run(). """
+        the default Builder. Return value as per Builder.run(). If there is
+        only one positional argument which is an iterable treat each element
+        as a command, returns a list of returns from Builder.run().
+    """
+    if len(args) == 1 and hasattr(args[0], '__iter__'):
+        return [default_builder.run(*a, **kwargs) for a in args[0]]
     return default_builder.run(*args, **kwargs)
 
+def after(*args):
+    """ wait until after the specified command groups complete and return 
+        results, or None if not parallel """
+    if getattr(default_builder, 'parallel_ok', False):
+        if len(args) == 0:
+            args = _groups.ids()  # wait on all
+        cond = threading.Condition()
+        cond.acquire()
+        _groups.add(False, _after(args, cond))
+        cond.wait()
+        results = []
+        ids = _groups.ids()
+        for a in args:
+            if a in ids and a is not False:
+                r = []
+                for i in _groups.item_list(a):
+                    r.append(i.results)
+                results.append((a,r))
+        return results
+    else:
+        return None
+    
 def autoclean():
     """ Automatically delete all outputs of the default build. """
     default_builder.autoclean()
@@ -1023,7 +1253,7 @@ def outofdate(command):
 # save options for use by main() if parse_options called earlier by user script
 _parsed_options = None
 
-#default usage message
+# default usage message
 _usage = '[options] build script functions to run'
 
 def parse_options(usage=_usage, extra_options=None):
@@ -1043,6 +1273,8 @@ def parse_options(usage=_usage, extra_options=None):
                       help="show debug info (why commands are rebuilt)")
     parser.add_option('-k', '--keep', action='store_true',
                       help='keep temporary strace output files')
+    parser.add_option('-j', '--jobs', type='int',
+                      help='maximum number of parallel jobs')
     if extra_options:
         # add any user-specified options passed in via main()
         for option in extra_options:
@@ -1070,21 +1302,20 @@ def fabricate_version(min=None, max=None):
     return __version__
 
 def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
-         default=None, **kwargs):
+         default=None, jobs=1, **kwargs):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
         value as its status code.
 
         "extra_options" is an optional list of options created with
-            optparse.make_option(). The pseudo-global variable main.options
-            is set to the parsed options list.
+        optparse.make_option(). The pseudo-global variable main.options
+        is set to the parsed options list.
         "builder" is the class of builder to create, default (None) is the 
-            normal builder
+        normal builder
         "default" is the default user script function to call, None = 'build'
-        "kwargs" is any other keyword arguments to pass to the builder
-    """
-    global default_builder, default_command
+        "kwargs" is any other keyword arguments to pass to the builder """
+    global default_builder, default_command, _pool
     if _parsed_options is not None:
         parser, options, actions = _parsed_options
     else:
@@ -1100,17 +1331,17 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     if options.keep:
         StraceRunner.keep_temps = options.keep
     main.options = options
+    if options.jobs is not None:
+        jobs = options.jobs
+    if _pool is None and jobs > 1:
+        _pool = multiprocessing.Pool(jobs)
     if default is not None:
         default_command = default
     if not actions:
         actions = [default_command]
-    if builder is not None:
-        builder_cls = builder
-    elif _setup_builder is not None:
-        builder_cls = _setup_builder
-    else:
-        builder_cls = Builder
-    default_builder = builder_cls(**kwargs)
+    use_builder = builder if builder is not None else \
+                    _setup_builder if _setup_builder is not None else Builder
+    default_builder = use_builder(**kwargs)
 
     original_path = os.getcwd()
     if None in [globals_dict, build_dir]:
@@ -1144,10 +1375,12 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
             else:
                 printerr('%r command not defined!' % action)
                 sys.exit(1)
+        after() # wait till the build commands are finished
     except ExecutionError, exc:
         message, data, status = exc
         printerr('fabricate: ' + message)
     finally:
+        _stop_results.set() # stop the results gatherer so I don't hang
         if not options.quiet and os.path.abspath(build_dir) != original_path:
             print "Leaving directory '%s' back to '%s'" % (build_dir, original_path)
         os.chdir(original_path)
