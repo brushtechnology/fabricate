@@ -806,7 +806,7 @@ def _results_handler( builder, delay=0.01):
                         else:
                             builder.done(r.command, d, o) # save deps
                             r.results = (r.command, d, o)
-                    _groups.dec_count(id)
+                        _groups.dec_count(id)
             # check if can now schedule things waiting on the after queue
             for a in _groups.item_list(False):
                 still_to_do = sum(_groups.get_count(g) for g in a.afters)
@@ -826,8 +826,9 @@ def _results_handler( builder, delay=0.01):
                     _groups.remove_item(False, a)
                     _groups.dec_count(False)
             _stop_results.wait(delay)
-    except Exception, e:
-        printerr("Error: exception " + str(e))
+    except Exception:
+        etype, eval, etb = sys.exc_info()
+        printerr("Error: exception " + repr(etype) + " at line " + str(etb.tb_lineno))
     finally:
         if not _stop_results.isSet():
             # oh dear, I am about to die for unexplained reasons, stop the whole
@@ -1333,14 +1334,14 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     main.options = options
     if options.jobs is not None:
         jobs = options.jobs
-    if _pool is None and jobs > 1:
-        _pool = multiprocessing.Pool(jobs)
     if default is not None:
         default_command = default
     if not actions:
         actions = [default_command]
-    use_builder = builder if builder is not None else \
-                    _setup_builder if _setup_builder is not None else Builder
+    if _pool is None and jobs > 1:
+        _pool = multiprocessing.Pool(jobs)
+    use_builder = (builder if builder is not None else
+                   _setup_builder if _setup_builder is not None else Builder)
     default_builder = use_builder(**kwargs)
 
     original_path = os.getcwd()

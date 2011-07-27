@@ -75,10 +75,11 @@ def generate():
         f.write('\n'.join(lines))
         f.close()
 
-def benchmark(runner):
+def benchmark(runner, jobs):
     if runner == 'always_runner':
         delete_deps()
 
+    para = ', parallel_ok=True, jobs=%d' % (jobs if jobs > 1 else '')
     build_file = r"""
 from fabricate import *
 
@@ -88,6 +89,7 @@ sources = [
 
 def build():
     compile()
+    after()
     link()
 
 def compile():
@@ -101,11 +103,12 @@ def link():
 def clean():
     autoclean()
 
-main(runner='%s')
+main(runner='%s'%s)
 """ % (',\n    '.join("'source%d'" % i for i in range(NUM_SOURCE_FILES)),
        repr(COMPILER),
        repr(COMPILER),
-       runner)
+       runner,
+       para)
 
     filename = os.path.join(BUILD_DIR, 'build.py')
     f = open(filename, 'w')
@@ -118,7 +121,7 @@ main(runner='%s')
     elapsed_time = get_time() - time0
     return elapsed_time
 
-def benchmake():
+def benchmake(jobs):
     makefile = """
 OBJECTS = \\
 \t%s
@@ -143,7 +146,8 @@ benchmark: $(OBJECTS)
 
     time0 = get_time()
     filename = os.path.join(BUILD_DIR, 'build.py')
-    fabricate.shell('make', '-s', '-C', BUILD_DIR)
+    job_arg = '-j%d' % jobs
+    fabricate.shell('make', job_arg, '-s', '-C', BUILD_DIR)
     elapsed_time = get_time() - time0
     return elapsed_time
 
@@ -152,7 +156,7 @@ def clean():
         shutil.rmtree(BUILD_DIR)
 
 def usage():
-    print 'Usage: benchmark.py compiler generate|benchmark [runner=smart_runner]|benchmake|clean'
+    print 'Usage: benchmark.py compiler generate|benchmark [runner=smart_runner [jobs=1]]|benchmake [jobs=1]|clean'
     sys.exit(1)
 
 if __name__ == '__main__':
@@ -160,6 +164,7 @@ if __name__ == '__main__':
         usage()
     orig_cwd = os.getcwd()
     os.chdir(os.path.dirname(__file__))
+    jobs = 1
     try:
         COMPILER = sys.argv[1]
         if sys.argv[2] == 'generate':
@@ -169,9 +174,13 @@ if __name__ == '__main__':
                 runner = sys.argv[3]
             else:
                 runner = 'smart_runner'
-            print benchmark(runner)
+            if len(sys.argv) > 4:
+                jobs = int(sys.argv[4])
+            print benchmark(runner, jobs)
         elif sys.argv[2] == 'benchmake':
-            print benchmake()
+            if len(sys.argv) > 4:
+                jobs = int(sys.argv[4])
+            print benchmake(jobs)
         elif sys.argv[2] == 'clean':
             clean()
         else:
