@@ -79,7 +79,7 @@ def benchmark(runner, jobs):
     if runner == 'always_runner':
         delete_deps()
 
-    para = ', parallel_ok=True, jobs=%d' % (jobs if jobs > 1 else '')
+    para = (', parallel_ok=True, jobs=%d' % jobs) if jobs > 1 else ''
     build_file = r"""
 from fabricate import *
 
