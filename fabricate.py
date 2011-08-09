@@ -1338,11 +1338,6 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         default_command = default
     if not actions:
         actions = [default_command]
-    if _pool is None and jobs > 1:
-        _pool = multiprocessing.Pool(jobs)
-    use_builder = (builder if builder is not None else
-                   _setup_builder if _setup_builder is not None else Builder)
-    default_builder = use_builder(**kwargs)
 
     original_path = os.getcwd()
     if None in [globals_dict, build_dir]:
@@ -1362,6 +1357,11 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         if not options.quiet and os.path.abspath(build_dir) != original_path:
             print "Entering directory '%s'" % build_dir
         os.chdir(build_dir)
+    if _pool is None and jobs > 1:
+        _pool = multiprocessing.Pool(jobs)
+    use_builder = (builder if builder is not None else
+                   _setup_builder if _setup_builder is not None else Builder)
+    default_builder = use_builder(**kwargs)
 
     status = 0
     try:

@@ -178,8 +178,8 @@ if __name__ == '__main__':
                 jobs = int(sys.argv[4])
             print benchmark(runner, jobs)
         elif sys.argv[2] == 'benchmake':
-            if len(sys.argv) > 4:
-                jobs = int(sys.argv[4])
+            if len(sys.argv) > 3:
+                jobs = int(sys.argv[3])
             print benchmake(jobs)
         elif sys.argv[2] == 'clean':
             clean()
