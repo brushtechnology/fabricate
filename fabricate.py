@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement
 
 # fabricate version number
-__version__ = '1.20'
+__version__ = '1.21'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -930,8 +930,12 @@ class Builder(object):
         if not self.quiet:
             print message
 
-    def echo_command(self, command):
-        """ Show a command being executed. """
+    def echo_command(self, command, echo=None):
+        """ Show a command being executed. Also passed run's "echo" arg
+            so you can override what's displayed.
+        """
+        if echo is not None:
+            command = str(echo)
         self.echo(command)
 
     def echo_delete(self, filename, error=None):
@@ -955,9 +959,13 @@ class Builder(object):
             Parallel operation keyword args "after" specifies a group or 
             iterable of groups to wait for after they finish, "group" specifies 
             the group to add this command to.
+
+            Optional "echo" keyword arg is passed to echo_command() so you can
+            override its output if you want.
         """
         after = kwargs.pop('after', None)
         group = kwargs.pop('group', True)
+        echo = kwargs.pop('echo', None)
         arglist = args_to_list(args)
         if not arglist:
             raise TypeError('run() takes at least 1 argument (0 given)')
@@ -972,7 +980,7 @@ class Builder(object):
             return command, None, None
 
         # use runner to run command and collect dependencies
-        self.echo_command(command)
+        self.echo_command(command, echo=echo)
         if self.parallel_ok:
             arglist.insert(0, self.runner)
             if after is not None:
