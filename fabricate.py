@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement
 
 # fabricate version number
-__version__ = '1.21'
+__version__ = '1.22'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -1325,6 +1325,8 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         "default" is the default user script function to call, None = 'build'
         "kwargs" is any other keyword arguments to pass to the builder """
     global default_builder, default_command, _pool
+
+    kwargs.update(_setup_kwargs)
     if _parsed_options is not None:
         parser, options, actions = _parsed_options
     else:
@@ -1344,6 +1346,8 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         jobs = options.jobs
     if default is not None:
         default_command = default
+    if default_command is None:
+        default_command = _setup_default
     if not actions:
         actions = [default_command]
 
@@ -1367,8 +1371,12 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         os.chdir(build_dir)
     if _pool is None and jobs > 1:
         _pool = multiprocessing.Pool(jobs)
-    use_builder = (builder if builder is not None else
-                   _setup_builder if _setup_builder is not None else Builder)
+
+    use_builder = Builder
+    if _setup_builder is not None:
+        user_builder = _setup_builder
+    if builder is not None:
+        use_builder = builder
     default_builder = use_builder(**kwargs)
 
     status = 0
