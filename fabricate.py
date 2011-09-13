@@ -1374,7 +1374,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
 
     use_builder = Builder
     if _setup_builder is not None:
-        user_builder = _setup_builder
+        use_builder = _setup_builder
     if builder is not None:
         use_builder = builder
     default_builder = use_builder(**kwargs)
