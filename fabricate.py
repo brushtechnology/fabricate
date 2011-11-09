@@ -418,7 +418,8 @@ class AtimesRunner(Runner):
                 #       resolution.  This will work for anything with a
                 #       resolution better than FAT.
                 if afters[name][1]-mtime_resolution/2 > befores[name][1]:
-                    outputs.append(name)
+                    if not self.ignore(name):
+                        outputs.append(name)
                 elif afters[name][0]-atime_resolution/2 > befores[name][0]:
                     # otherwise add to deps if atime changed
                     if not self.ignore(name):
