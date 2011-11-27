@@ -1338,8 +1338,6 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         kwargs['hasher'] = mtime_hasher
     if options.dir:
         kwargs['dirs'] = options.dir
-    if options.clean:
-        default_builder.autoclean()
     if options.keep:
         StraceRunner.keep_temps = options.keep
     main.options = options
@@ -1379,6 +1377,9 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     if builder is not None:
         use_builder = builder
     default_builder = use_builder(**kwargs)
+
+    if options.clean:
+        default_builder.autoclean()
 
     status = 0
     try:
