@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement
 
 # fabricate version number
-__version__ = '1.22'
+__version__ = '1.23'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -1215,12 +1215,19 @@ def setup(builder=None, default=None, **kwargs):
     _setup_kwargs = kwargs
 setup.__doc__ += '\n\n' + Builder.__init__.__doc__
 
+def _set_default_builder():
+    """ Set default builder to Builder() instance if it's not yet set. """
+    global default_builder
+    if default_builder is None:
+        default_builder = Builder()
+
 def run(*args, **kwargs):
     """ Run the given command, but only if its dependencies have changed. Uses
         the default Builder. Return value as per Builder.run(). If there is
         only one positional argument which is an iterable treat each element
         as a command, returns a list of returns from Builder.run().
     """
+    _set_default_builder()
     if len(args) == 1 and hasattr(args[0], '__iter__'):
         return [default_builder.run(*a, **kwargs) for a in args[0]]
     return default_builder.run(*args, **kwargs)
@@ -1228,6 +1235,7 @@ def run(*args, **kwargs):
 def after(*args):
     """ wait until after the specified command groups complete and return 
         results, or None if not parallel """
+    _set_default_builder()
     if getattr(default_builder, 'parallel_ok', False):
         if len(args) == 0:
             args = _groups.ids()  # wait on all
@@ -1249,15 +1257,18 @@ def after(*args):
     
 def autoclean():
     """ Automatically delete all outputs of the default build. """
+    _set_default_builder()
     default_builder.autoclean()
 
 def memoize(command, **kwargs):
+    _set_default_builder()
     return default_builder.memoize(command, **kwargs)
 
 memoize.__doc__ = Builder.memoize.__doc__
 
 def outofdate(command):
     """ Return True if given command is out of date and needs to be run. """
+    _set_default_builder()
     return default_builder.outofdate(command)
 
 # save options for use by main() if parse_options called earlier by user script
