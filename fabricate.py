@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement
 
 # fabricate version number
-__version__ = '1.23'
+__version__ = '1.24'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -150,12 +150,12 @@ def shell(*args, **kwargs):
             COMSPEC) instead of running the command directly (the default)
         "ignore_status" set to True means ignore command status code -- i.e.,
             don't raise an ExecutionError on nonzero status code
-
+        Any other kwargs are passed directly to subprocess.Popen
         Raises ExecutionError(message, output, status) if the command returns
         a non-zero status code. """
     return _shell(args, **kwargs)
 
-def _shell(args, input=None, silent=True, shell=False, ignore_status=False):
+def _shell(args, input=None, silent=True, shell=False, ignore_status=False, **kwargs):
     if input:
         stdin = subprocess.PIPE
     else:
@@ -175,7 +175,7 @@ def _shell(args, input=None, silent=True, shell=False, ignore_status=False):
         command = arglist
     try:
         proc = subprocess.Popen(command, stdin=stdin, stdout=stdout,
-                                stderr=subprocess.STDOUT, shell=shell)
+                                stderr=subprocess.STDOUT, shell=shell, **kwargs)
     except OSError, e:
         # Work around the problem that Windows Popen doesn't say what file it couldn't find
         if platform.system() == 'Windows' and e.errno == 2 and e.filename is None:
