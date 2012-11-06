@@ -153,7 +153,11 @@ def shell(*args, **kwargs):
         Any other kwargs are passed directly to subprocess.Popen
         Raises ExecutionError(message, output, status) if the command returns
         a non-zero status code. """
-    return _shell(args, **kwargs)
+    try:
+        return _shell(args, **kwargs)
+    finally:
+        sys.stderr.flush()
+        sys.stdout.flush()
 
 def _shell(args, input=None, silent=True, shell=False, ignore_status=False, **kwargs):
     if input:
@@ -951,19 +955,7 @@ class Builder(object):
         if self.debug:
             print 'DEBUG:', message
 
-    def run(self, *args, **kwargs):
-        """ Run command given in args with kwargs per shell(), but only if its
-            dependencies or outputs have changed or don't exist. Return tuple
-            of (command_line, deps_list, outputs_list) so caller or subclass
-            can use them.
-
-            Parallel operation keyword args "after" specifies a group or 
-            iterable of groups to wait for after they finish, "group" specifies 
-            the group to add this command to.
-
-            Optional "echo" keyword arg is passed to echo_command() so you can
-            override its output if you want.
-        """
+    def _run(self, *args, **kwargs):
         after = kwargs.pop('after', None)
         group = kwargs.pop('group', True)
         echo = kwargs.pop('echo', None)
@@ -998,6 +990,25 @@ class Builder(object):
             deps, outputs = self.runner(*arglist, **kwargs)
             return self.done(command, deps, outputs)
         
+    def run(self, *args, **kwargs):
+        """ Run command given in args with kwargs per shell(), but only if its
+            dependencies or outputs have changed or don't exist. Return tuple
+            of (command_line, deps_list, outputs_list) so caller or subclass
+            can use them.
+
+            Parallel operation keyword args "after" specifies a group or 
+            iterable of groups to wait for after they finish, "group" specifies 
+            the group to add this command to.
+
+            Optional "echo" keyword arg is passed to echo_command() so you can
+            override its output if you want.
+        """
+        try:
+            return self._run(*args, **kwargs)
+        finally:
+            sys.stderr.flush()
+            sys.stdout.flush()
+
     def done(self, command, deps, outputs):
         """ Store the results in the .deps file when they are available """
         if deps is not None or outputs is not None:
