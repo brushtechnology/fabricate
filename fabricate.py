@@ -508,6 +508,7 @@ class StraceRunner(Runner):
     _execve_re     = re.compile(r'(?P<pid>\d+)\s+execve\("(?P<name>[^"]*)", .*')
     _mkdir_re      = re.compile(r'(?P<pid>\d+)\s+mkdir\("(?P<name>[^"]*)", .*')
     _rename_re     = re.compile(r'(?P<pid>\d+)\s+rename\("[^"]*", "(?P<name>[^"]*)"\)')
+    _symlink_re    = re.compile(r'(?P<pid>\d+)\s+symlink\("[^"]*", "(?P<name>[^"]*)"\)')
     _kill_re       = re.compile(r'(?P<pid>\d+)\s+killed by.*')
     _chdir_re      = re.compile(r'(?P<pid>\d+)\s+chdir\("(?P<cwd>[^"]*)"\)')
     _exit_group_re = re.compile(r'(?P<pid>\d+)\s+exit_group\((?P<status>.*)\).*')
@@ -525,7 +526,7 @@ class StraceRunner(Runner):
         shell_keywords = dict(silent=False)
         shell_keywords.update(kwargs)
         shell('strace', '-fo', outname, '-e',
-              'trace=open,%s,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork' % self._stat_func,
+              'trace=open,%s,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork,symlink' % self._stat_func,
               args, **shell_keywords)
         cwd = '.' 
         status = 0
@@ -551,6 +552,7 @@ class StraceRunner(Runner):
             stat_match = self._stat_re.match(line)
             execve_match = self._execve_re.match(line)
             mkdir_match = self._mkdir_re.match(line)
+            symlink_match = self._symlink_re.match(line)
             rename_match = self._rename_re.match(line)
             clone_match = self._clone_re.match(line)  
 
@@ -577,7 +579,11 @@ class StraceRunner(Runner):
             elif stat_match:
                 match = stat_match
             elif mkdir_match:
-                match = mkdir_match                
+                match = mkdir_match
+            elif symlink_match:
+            	match =  symlink_match                  
+                # the created symlink is an output file
+                is_output = True
             elif rename_match:
                 match = rename_match
                 # the destination of a rename is an output file
