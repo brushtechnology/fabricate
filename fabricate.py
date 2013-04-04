@@ -1331,7 +1331,7 @@ _parsed_options = None
 # default usage message
 _usage = '[options] build script functions to run'
 
-def parse_options(usage=_usage, extra_options=None):
+def parse_options(usage=_usage, extra_options=None, cmdline=None):
     """ Parse command line options and return (parser, options, args). """
     parser = optparse.OptionParser(usage='Usage: %prog '+usage,
                                    version='%prog '+__version__)
@@ -1354,7 +1354,10 @@ def parse_options(usage=_usage, extra_options=None):
         # add any user-specified options passed in via main()
         for option in extra_options:
             parser.add_option(option)
-    options, args = parser.parse_args()
+    if cmdline is not None:
+        options, args = parser.parse_args(cmdline)
+    else:
+        options, args = parser.parse_args()
     _parsed_options = (parser, options, args)
     return _parsed_options
 
@@ -1377,7 +1380,7 @@ def fabricate_version(min=None, max=None):
     return __version__
 
 def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
-         default=None, jobs=1, **kwargs):
+         default=None, jobs=1, cmdline=None, **kwargs):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
@@ -1396,7 +1399,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     if _parsed_options is not None:
         parser, options, actions = _parsed_options
     else:
-        parser, options, actions = parse_options(extra_options=extra_options)
+        parser, options, actions = parse_options(extra_options=extra_options, cmdline=cmdline)
     kwargs['quiet'] = options.quiet
     kwargs['debug'] = options.debug
     if options.time:
