@@ -773,6 +773,12 @@ class _Groups(object):
             else:
                 self.groups[id] = self.value(val)
             self.groups[id].count += 1
+
+    def ensure(self, id):
+        """if id does not exit, create it without any value"""
+        with self.lock:
+            if not id in self.groups:
+                self.groups[id] = self.value()
     
     def get_count(self, id):
         with self.lock:
@@ -992,11 +998,15 @@ class Builder(object):
         # we want a command line string for the .deps file key and for display
         command = subprocess.list2cmdline(arglist)
         if not self.cmdline_outofdate(command):
+            if self.parallel_ok:
+                _groups.ensure(group)
             return command, None, None
 
         # if just checking up-to-date-ness, set flag and do nothing more
         self.outofdate_flag = True
         if self.checking:
+            if self.parallel_ok:
+                _groups.ensure(group)
             return command, None, None
 
         # use runner to run command and collect dependencies
