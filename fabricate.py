@@ -56,7 +56,7 @@ __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
            'memoize', 'outofdate', 'parse_options', 'after',
            'ExecutionError', 'md5_hasher', 'mtime_hasher',
            'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner', 
-	   'InterposingRunner', 'TrackerRunner',
+           'InterposingRunner', 'TrackerRunner',
            'SmartRunner', 'Builder']
 
 import textwrap
@@ -748,9 +748,9 @@ static char *careful_realpath(const char *path) {
 #define do_open(name) \
 int name(const char *path, int oflag, ...);\
 int my_##name(const char * path, int oflag, int x) { \
-	int ret = name(path, oflag, x); \
-	char *path_ = careful_realpath(path); \
-	if(path_) { fprintf(outfp, "!%s.open %s\\n", oflag & (O_WRONLY | O_RDWR) ? "write" : "read", path_); /*free(path_);*/ } \
+        int ret = name(path, oflag, x); \
+        char *path_ = careful_realpath(path); \
+        if(path_) { fprintf(outfp, "!%s.open %s\\n", oflag & (O_WRONLY | O_RDWR) ? "write" : "read", path_); /*free(path_);*/ } \
     return ret; \
 } \
 DYLD_INTERPOSE(my_##name, name)
@@ -767,9 +767,9 @@ do_open(open$NOCANCEL$UNIX2003)
 #define do_stat(name) \
 int name(const char *path, struct stat *buf); \
 int my_##name(const char *path, struct stat *buf) { \
-	char *path_ = careful_realpath(path); \
-	if(path_) { fprintf(outfp, "!read.stat %s\\n", path_); /*free(path_);*/ } \
-	return name(path, buf); \
+        char *path_ = careful_realpath(path); \
+        if(path_) { fprintf(outfp, "!read.stat %s\\n", path_); /*free(path_);*/ } \
+        return name(path, buf); \
 } \
 DYLD_INTERPOSE(my_##name, name)
 
@@ -779,9 +779,9 @@ do_stat(lstat)
 do_stat(lstat$INODE64)
 
 int my_mkdir(const char * path, mode_t mode) {
-	char *path_ = careful_realpath(path);
-	if(path_) { fprintf(outfp, "!write.mkdir %s\\n", path_); /*free(path_);*/ }
-	return mkdir(path, mode);
+        char *path_ = careful_realpath(path);
+        if(path_) { fprintf(outfp, "!write.mkdir %s\\n", path_); /*free(path_);*/ }
+        return mkdir(path, mode);
 }
 DYLD_INTERPOSE(my_mkdir, mkdir)
 
@@ -876,8 +876,8 @@ class SmartRunner(Runner):
         self._builder = builder
         try:
             if os.path.exist('/usr/lib/dyld'):
-		self._runner = InterposingRunner(self._builder)
-	    else:
+                self._runner = InterposingRunner(self._builder)
+            else:
                 self._runner = StraceRunner(self._builder)
         except RunnerUnsupportedException:
             try:
@@ -1041,7 +1041,7 @@ def _results_handler( builder, delay=0.01):
                             d, o = r.async.get()
                         except Exception, e:
                             r.results = e
-                            _groups.set_ok(False)
+                            _groups.set_ok(id, False)
                         else:
                             builder.done(r.command, d, o) # save deps
                             r.results = (r.command, d, o)
@@ -1146,7 +1146,7 @@ class Builder(object):
         self.inputs_only = inputs_only
         self.checking = False
         self.hash_cache = {}
-	self.keep_temps = keep_temps
+        self.keep_temps = keep_temps
 
         # instantiate runner after the above have been set in case it needs them
         if runner is not None:
@@ -1161,10 +1161,12 @@ class Builder(object):
         is_strace = isinstance(self.runner.actual_runner(), StraceRunner)
         self.parallel_ok = parallel_ok and is_strace and _pool is not None
         if self.parallel_ok:
+            global _results
             _results = threading.Thread(target=_results_handler,
                                         args=[self])
             _results.setDaemon(True)
             _results.start()
+            atexit.register(self._join_results_handler)
             self.keep_temps = False # unsafe for parallel execution
             
     def echo(self, message):
@@ -1412,15 +1414,15 @@ class Builder(object):
         'strace_runner' : StraceRunner,
         'always_runner' : AlwaysRunner,
         'smart_runner' : SmartRunner,
-	'interposing_runner' :InterposingRunner,
-	'tracker_runner' : TrackerRunner
+        'interposing_runner' :InterposingRunner,
+        'tracker_runner' : TrackerRunner
         }
 
     def set_runner(self, runner):
         """Set the runner for this builder.  "runner" is either a Runner
            subclass (e.g. SmartRunner), or a string selecting one of the
            standard runners ("atimes_runner", "strace_runner", "always_runner",
-	   "interposing_runner", "tracker_runner" or "smart_runner")."""
+           "interposing_runner", "tracker_runner" or "smart_runner")."""
         try:
             self.runner = self._runner_map[runner](self)
         except KeyError:
@@ -1449,6 +1451,11 @@ class Builder(object):
                     continue
                 return True
         return False
+
+    def _join_results_handler(self):
+        """Stops then joins the results handler thread"""
+        _stop_results.set()
+        _results.join()
 
 # default Builder instance, used by helper run() and main() helper functions
 default_builder = None
