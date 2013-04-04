@@ -467,7 +467,6 @@ def _call_strace(self, *args, **kwargs):
     return self(*args, **kwargs)
 
 class StraceRunner(Runner):
-    keep_temps = False
 
     def __init__(self, builder, build_dir=None):
         self.strace_version = StraceRunner.get_strace_version()
@@ -631,7 +630,7 @@ class StraceRunner(Runner):
             to determine dependencies (by looking at what files are opened or
             modified). """
         ignore_status = kwargs.pop('ignore_status', False)
-        if self.keep_temps:
+        if self._builder.keep_temps:
             outname = 'strace%03d.txt' % self.temp_count
             self.temp_count += 1
             handle = os.open(outname, os.O_CREAT)
@@ -652,7 +651,7 @@ class StraceRunner(Runner):
             finally:
                 outfile.close()
         finally:
-            if not self.keep_temps:
+            if not self._builder.keep_temps:
                 os.remove(outname)
 
         if status and not ignore_status:
@@ -660,6 +659,152 @@ class StraceRunner(Runner):
                                  % (os.path.basename(args[0]), status),
                                  '', status)
         return list(deps), list(outputs)
+
+class InterposingRunner(Runner):
+
+    train = '''
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+// from dyld-interposing.h
+#define DYLD_INTERPOSE(_replacement,_replacee)    __attribute__((used)) static struct{ const void* replacement; const void* replacee; } _interpose_##_replacee             __attribute__ ((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
+
+static pthread_key_t recursion_key;
+static FILE *outfp;
+
+__attribute__((constructor))
+static void init() {
+    pthread_key_create(&recursion_key, NULL);
+    outfp = fopen(getenv("TRAIN_OUTPUT"), "a");
+    if(!outfp) {
+        fprintf(stderr, "Could not open TRAIN_OUTPUT\\n");
+        abort();
+    }
+}
+
+static char *careful_realpath(const char *path) {
+    if(!outfp || pthread_getspecific(recursion_key) != NULL) {
+        return NULL;
+    }
+    pthread_setspecific(recursion_key, (void *) 1);
+    char *ret = realpath(path, NULL);
+    pthread_setspecific(recursion_key, NULL);
+    return ret;
+}
+
+#define do_open(name) \
+int name(const char *path, int oflag, ...);\
+int my_##name(const char * path, int oflag, int x) { \
+	int ret = name(path, oflag, x); \
+	char *path_ = careful_realpath(path); \
+	if(path_) { fprintf(outfp, "!%s.open %s\\n", oflag & (O_WRONLY | O_RDWR) ? "write" : "read", path_); /*free(path_);*/ } \
+    return ret; \
+} \
+DYLD_INTERPOSE(my_##name, name)
+
+#ifdef __LP64__
+do_open(open)
+do_open(open$NOCANCEL)
+#else
+do_open(open)
+do_open(open$UNIX2003)
+do_open(open$NOCANCEL$UNIX2003)
+#endif
+
+#define do_stat(name) \
+int name(const char *path, struct stat *buf); \
+int my_##name(const char *path, struct stat *buf) { \
+	char *path_ = careful_realpath(path); \
+	if(path_) { fprintf(outfp, "!read.stat %s\\n", path_); /*free(path_);*/ } \
+	return name(path, buf); \
+} \
+DYLD_INTERPOSE(my_##name, name)
+
+do_stat(stat)
+do_stat(stat$INODE64)
+do_stat(lstat)
+do_stat(lstat$INODE64)
+
+int my_mkdir(const char * path, mode_t mode) {
+	char *path_ = careful_realpath(path);
+	if(path_) { fprintf(outfp, "!write.mkdir %s\\n", path_); /*free(path_);*/ }
+	return mkdir(path, mode);
+}
+DYLD_INTERPOSE(my_mkdir, mkdir)
+
+int my_rename(const char *old, const char *new) {
+    char *old_ = careful_realpath(old);
+    int ret = rename(old, new);
+    char *new_ = careful_realpath(new);
+    if(old_) { fprintf(outfp, "!read.rename %s\\n", old_); /*free(old_);*/ }
+    if(new_) { fprintf(outfp, "!write.rename %s\\n", new_); /*free(new_);*/ }
+    return ret;
+}
+DYLD_INTERPOSE(my_rename, rename)
+'''
+    def __init__(self, builder):
+        self._builder = builder
+        self.temp_count = 0
+    
+    def __call__(self, *args):
+        dylib_path = os.path.expanduser('~/.fabricate.dylib')
+        c_path = os.path.expanduser('~/.fabricate.c')
+        if not (os.path.exists(dylib_path) and os.path.exists(c_path) and open(c_path).read() == self.train):
+            open(c_path, 'w').write(self.train)
+            try:
+                shell('gcc', '-arch', 'i386', '-arch', 'x86_64', '-dynamiclib', '-o', dylib_path, c_path, silent=False)
+            except ExecutionError:
+                raise
+        
+        if self._builder.keep_temps:
+            outname = 'interposing%03d.txt' % self.temp_count
+            self.temp_count += 1
+            handle = os.open(outname, os.O_CREAT)
+        else:
+            handle, outname = tempfile.mkstemp()
+
+        os.environ['DYLD_INSERT_LIBRARIES'] = dylib_path
+        os.environ['TRAIN_OUTPUT'] = outname
+        open(outname, 'w').close()
+
+        try:
+            try:
+                outfile = os.fdopen(handle, 'r')
+            except:
+                os.close(handle)
+                raise
+            try:
+                output = shell(*args, silent=False)
+
+                deps = set()
+                outputs = set()
+                for line in outfile:
+                    assert line.startswith('!') 
+                    read_write = line[1:line.find('.')]
+                    name = line[line.find(' ')+1:-1]
+                
+                    if (self._builder._is_relevant(name)
+                        and not self.ignore(name)
+                        and (os.path.isfile(name)
+                            or os.path.isdir(name)
+                            or not os.path.lexists(name))):
+
+                        if read_write == 'read':
+                            deps.add(name)
+                        elif read_write == 'write':
+                            outputs.add(name)
+                        else:
+                            raise ValueError(line)
+            finally:
+                outfile.close()
+        finally:
+            if not self._builder.keep_temps:
+                os.remove(outname)
+        
+        return list(deps), list(outputs)
+        
 
 class AlwaysRunner(Runner):
     def __init__(self, builder):
@@ -679,7 +824,10 @@ class SmartRunner(Runner):
     def __init__(self, builder):
         self._builder = builder
         try:
-            self._runner = StraceRunner(self._builder)
+            if os.path.exist('/usr/lib/dyld'):
+		self._runner = InterposingRunner(self._builder)
+	    else:
+                self._runner = StraceRunner(self._builder)
         except RunnerUnsupportedException:
             try:
                 self._runner = AtimesRunner(self._builder)
@@ -861,7 +1009,7 @@ class Builder(object):
 
     def __init__(self, runner=None, dirs=None, dirdepth=100, ignoreprefix='.',
                  ignore=None, hasher=md5_hasher, depsname='.deps',
-                 quiet=False, debug=False, inputs_only=False, parallel_ok=False):
+                 quiet=False, debug=False, inputs_only=False, parallel_ok=False, keep_temps=False):
         """ Initialise a Builder with the given options.
 
         "runner" specifies how programs should be run.  It is either a
@@ -910,6 +1058,7 @@ class Builder(object):
         self.inputs_only = inputs_only
         self.checking = False
         self.hash_cache = {}
+	self.keep_temps = keep_temps
 
         # instantiate runner after the above have been set in case it needs them
         if runner is not None:
@@ -928,7 +1077,7 @@ class Builder(object):
                                         args=[self])
             _results.setDaemon(True)
             _results.start()
-            StraceRunner.keep_temps = False # unsafe for parallel execution
+            self.keep_temps = False # unsafe for parallel execution
             
     def echo(self, message):
         """ Print message, but only if builder is not in quiet mode. """
@@ -1167,6 +1316,7 @@ class Builder(object):
         'strace_runner' : StraceRunner,
         'always_runner' : AlwaysRunner,
         'smart_runner' : SmartRunner,
+	'interposing_runner' :InterposingRunner,
         }
 
     def set_runner(self, runner):
@@ -1304,7 +1454,7 @@ def parse_options(usage=_usage, extra_options=None):
     parser.add_option('-D', '--debug', action='store_true',
                       help="show debug info (why commands are rebuilt)")
     parser.add_option('-k', '--keep', action='store_true',
-                      help='keep temporary strace output files')
+                      help='keep temporary trace output files')
     parser.add_option('-j', '--jobs', type='int',
                       help='maximum number of parallel jobs')
     if extra_options:
@@ -1361,7 +1511,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     if options.dir:
         kwargs['dirs'] = options.dir
     if options.keep:
-        StraceRunner.keep_temps = options.keep
+        kwargs['keep_temps'] = options.dir
     main.options = options
     if options.jobs is not None:
         jobs = options.jobs
