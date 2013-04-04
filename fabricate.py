@@ -779,7 +779,7 @@ class _Groups(object):
         with self.lock:
             if not id in self.groups:
                 self.groups[id] = self.value()
-    
+
     def get_count(self, id):
         with self.lock:
             if id not in self.groups:
@@ -850,15 +850,17 @@ def _results_handler( builder, delay=0.01):
                 if False in a.afters:
                     still_to_do -= 1 # don't count yourself of course
                 if still_to_do == 0:
-                    if isinstance(a.do, tuple):
+                    if isinstance(a.do, _todo):
                         if no_error:
                             async = _pool.apply_async(_call_strace, a.do.arglist,
                                         a.do.kwargs)
                             _groups.add(a.do.group, _running(async, a.do.command))
-                    else:
+                    elif isinstance(a.do, threading._Condition):
+                        # is this only for threading._Condition in after()?
                         a.do.acquire()
                         a.do.notify()
                         a.do.release()
+                    # else: #are there other cases?
                     _groups.remove_item(False, a)
                     _groups.dec_count(False)
             _stop_results.wait(delay)
