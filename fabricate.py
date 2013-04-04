@@ -865,7 +865,11 @@ class _Groups(object):
     class value(object):
         """ the value type in the map """
         def __init__(self, val=None):
-            self.count = 0  # count of items not yet completed
+            self.count = 0  # count of items not yet completed.
+                            # This also includes count_in_false number
+            self.count_in_false = 0  # count of commands which is assigned 
+                                     # to False group, but will be moved
+                                     # to this group.
             self.items = [] # items in this group
             if val is not None:
                 self.items.append(val)
@@ -929,6 +933,28 @@ class _Groups(object):
         with self.lock:
             return self.groups.keys()
 
+    # modification to reserve blocked commands to corresponding groups
+    def inc_count_for_blocked(self, id):
+        with self.lock:
+            if not id in self.groups:
+                self.groups[id] = self.value()
+            self.groups[id].count += 1
+            self.groups[id].count_in_false += 1
+    
+    def add_for_blocked(self, id, val):
+        # modification of add(), in order to move command from False group
+        # to actual group
+        with self.lock:
+            # id must be registered before
+            self.groups[id].items.append(val)
+            # count does not change (already considered 
+            # in inc_count_for_blocked), but decrease count_in_false.
+            c = self.groups[id].count_in_false - 1
+            if c < 0:
+                raise ValueError
+            self.groups[id].count_in_false = c
+
+    
 # pool of processes to run parallel jobs, must not be part of any object that
 # is pickled for transfer to these processes, ie it must be global
 _pool = None
@@ -977,7 +1003,7 @@ def _results_handler( builder, delay=0.01):
                         if no_error:
                             async = _pool.apply_async(_call_strace, a.do.arglist,
                                         a.do.kwargs)
-                            _groups.add(a.do.group, _running(async, a.do.command))
+                            _groups.add_for_blocked(a.do.group, _running(async, a.do.command))
                     elif isinstance(a.do, threading._Condition):
                         # is this only for threading._Condition in after()?
                         a.do.acquire()
@@ -1140,6 +1166,10 @@ class Builder(object):
             if after is not None:
                 if not hasattr(after, '__iter__'):
                     after = [after]
+                # This command is registered to False group firstly,
+                # but the actual group of this command should 
+                # count this blocked command as well as usual commands
+                _groups.inc_count_for_blocked(group)
                 _groups.add(False,
                             _after(after, _todo(group, command, arglist,
                                                 kwargs)))
