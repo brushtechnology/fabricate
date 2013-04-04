@@ -31,9 +31,11 @@ deps_version = 2
 import atexit
 import optparse
 import os
+import codecs
 import platform
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import sys
@@ -53,7 +55,8 @@ except ImportError:
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
            'memoize', 'outofdate', 'parse_options', 'after',
            'ExecutionError', 'md5_hasher', 'mtime_hasher',
-           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner',
+           'Runner', 'AtimesRunner', 'StraceRunner', 'AlwaysRunner', 
+	   'InterposingRunner', 'TrackerRunner',
            'SmartRunner', 'Builder']
 
 import textwrap
@@ -233,6 +236,49 @@ class Runner(object):
         
     def ignore(self, name):
         return self._builder.ignore.search(name)
+
+
+class TrackerRunner(Runner):
+    __TRACKER = "c:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v8.0A\\bin\\NETFX 4.0 Tools\\Tracker.exe"
+
+    def __init__(self, builder, build_dirs=None):
+        self._builder = builder
+        self._build_dirs = build_dirs
+        if self._build_dirs is None:
+            self._build_dirs = [os.getcwd().upper()]
+        if not os.path.isfile(TrackerRunner.__TRACKER):
+            raise RunnerUnsupportedException(
+                'tracker.exe is not supported on this platform')
+
+    def ParseTouched(self, tlogFN):
+        deps = []
+        with codecs.open(tlogFN, 'r', 'utf-16') as tlog:
+            lines = tlog.readlines()[1:]
+            for line in lines:
+                for bdirs in self._build_dirs:
+                    if bdirs in line:
+                        deps.append(line)
+            return list(set(lines))
+        return []
+
+    def __call__(self, *args, **kwargs):
+        tmpd = tempfile.mkdtemp(suffix='tracker')
+        if not os.path.isdir(tmpd):
+            raise RunnerUnsupportedException('failed to create a temporary directory for tracker')
+        shell_keywords = dict(silent=False)
+        shell_keywords.update(kwargs)
+        shell(TrackerRunner.__TRACKER, '/if', tmpd, '/c', args, **shell_keywords)
+        # dig through all the *.tlog files and get the files touched
+        alldeps     = []
+        allouts     = []
+        for tlog in [ f for f in os.listdir(tmpd) if '.read.tlog' in (f) ]:
+            deps = self.ParseTouched(os.path.join(tmpd, tlog))
+            alldeps.extend(deps)
+        for tlog in [ f for f in os.listdir(tmpd) if '.write.tlog' in f ]:
+            outs = self.ParseTouched(os.path.join(tmpd, tlog))
+            allouts.extend(outs)
+        shutil.rmtree(tmpd)
+        return alldeps, allouts
 
 class AtimesRunner(Runner):
     def __init__(self, builder):
@@ -835,9 +881,12 @@ class SmartRunner(Runner):
                 self._runner = StraceRunner(self._builder)
         except RunnerUnsupportedException:
             try:
-                self._runner = AtimesRunner(self._builder)
+                self._runner = TrackerRunner(self._builder)
             except RunnerUnsupportedException:
-                self._runner = AlwaysRunner(self._builder)
+                try:
+                    self._runner = AtimesRunner(self._builder)
+                except RunnerUnsupportedException:
+                    self._runner = AlwaysRunner(self._builder)
 
     def actual_runner(self):
         return self._runner
@@ -1364,13 +1413,14 @@ class Builder(object):
         'always_runner' : AlwaysRunner,
         'smart_runner' : SmartRunner,
 	'interposing_runner' :InterposingRunner,
+	'tracker_runner' : TrackerRunner
         }
 
     def set_runner(self, runner):
         """Set the runner for this builder.  "runner" is either a Runner
            subclass (e.g. SmartRunner), or a string selecting one of the
-           standard runners ("atimes_runner", "strace_runner",
-           "always_runner", or "smart_runner")."""
+           standard runners ("atimes_runner", "strace_runner", "always_runner",
+	   "interposing_runner", "tracker_runner" or "smart_runner")."""
         try:
             self.runner = self._runner_map[runner](self)
         except KeyError:
