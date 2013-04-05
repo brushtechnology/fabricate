@@ -207,11 +207,11 @@ def md5_hasher(filename):
         finally:
             f.close()
     except IOError:
-       if os.path.islink(filename):
+        if os.path.islink(filename):
             return md5func(os.readlink(filename)).hexdigest()
-       elif os.path.isdir(filename):
+        elif os.path.isdir(filename):
             return md5func(filename).hexdigest()
-       return None
+        return None
 
 def mtime_hasher(filename):
     """ Return modification time of file, or None if file doesn't exist. """
