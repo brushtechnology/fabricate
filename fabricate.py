@@ -632,6 +632,7 @@ class StraceRunner(Runner):
 
             match = self._chdir_re.match(line)
             if match:
+                pid  = match.group('pid')
                 processes[pid].cwd = os.path.join(processes[pid].cwd, match.group('cwd'))
 
             match = self._exit_group_re.match(line)
