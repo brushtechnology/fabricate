@@ -1,4 +1,5 @@
 """Simple benchmark for fabricate."""
+from __future__ import print_function
 
 import os
 import shutil
@@ -156,7 +157,7 @@ def clean():
         shutil.rmtree(BUILD_DIR)
 
 def usage():
-    print 'Usage: benchmark.py compiler generate|benchmark [runner=smart_runner [jobs=1]]|benchmake [jobs=1]|clean'
+    print('Usage: benchmark.py compiler generate|benchmark [runner=smart_runner [jobs=1]]|benchmake [jobs=1]|clean')
     sys.exit(1)
 
 if __name__ == '__main__':
@@ -176,11 +177,11 @@ if __name__ == '__main__':
                 runner = 'smart_runner'
             if len(sys.argv) > 4:
                 jobs = int(sys.argv[4])
-            print benchmark(runner, jobs)
+            print(benchmark(runner, jobs))
         elif sys.argv[2] == 'benchmake':
             if len(sys.argv) > 3:
                 jobs = int(sys.argv[3])
-            print benchmake(jobs)
+            print(benchmake(jobs))
         elif sys.argv[2] == 'clean':
             clean()
         else:
