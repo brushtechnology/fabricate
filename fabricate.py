@@ -49,12 +49,6 @@ except ImportError:
             raise NotImplementedError("multiprocessing module not available, can't do parallel builds")
     multiprocessing = MultiprocessingModule()
 
-PY3 = sys.version_info[0] == 3
-if PY3:
-    string_types = str
-else:
-    string_types = basestring
-
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
            'memoize', 'outofdate', 'parse_options', 'after',
@@ -106,6 +100,18 @@ except ImportError:
             def dump(self, obj, f, indent=None, sort_keys=None):
                 return cPickle.dump(obj, f)
         json = PickleJson()
+
+# python 3 compatibility bits
+PY3 = sys.version_info[0] == 3
+if PY3:
+    string_types = str
+    _iteritems = "items"
+else:
+    string_types = basestring
+    _iteritems = "iteritems"
+
+def iteritems(d, **kw):
+    return iter(getattr(d, _iteritems)(**kw))
 
 def printerr(message):
     """ Print given message to stderr with a line feed. """
@@ -401,7 +407,7 @@ class AtimesRunner(Runner):
             and return a new dict of filetimes with the ages adjusted. """
         adjusted = {}
         now = time.time()
-        for filename, entry in filetimes.iteritems():
+        for filename, entry in iteritems(filetimes):
             if now-entry[0] < FAT_atime_resolution or now-entry[1] < FAT_mtime_resolution:
                 entry = entry[0] - FAT_atime_resolution, entry[1] - FAT_mtime_resolution
                 self._utime(filename, entry[0], entry[1])
