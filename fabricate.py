@@ -203,7 +203,8 @@ def md5_hasher(filename):
         
         Note: Pyhton versions before 3.2 do not support os.readlink on
         Windows so symlinks without a hashable target fall back to
-        a hash of the filename as they would for a directory"""
+        a hash of the filename if the symlink target is a directory, 
+        or None if the symlink is broken"""
     try:
         f = open(filename, 'rb')
         try:
