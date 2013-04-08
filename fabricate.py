@@ -199,7 +199,11 @@ def md5_hasher(filename):
         a symlink with a hashable target, or the MD5 hash of the 
         target_filename if it is a symlink without a hashable target,
         or the MD5 hash of the filename if it is a directory, or None 
-        if file doesn't exist. """
+        if file doesn't exist. 
+        
+        Note: Pyhton versions before 3.2 do not support os.readlink on
+        Windows so symlinks without a hashable target fall back to
+        a hash of the filename as they would for a directory"""
     try:
         f = open(filename, 'rb')
         try:
@@ -207,7 +211,7 @@ def md5_hasher(filename):
         finally:
             f.close()
     except IOError:
-        if os.path.islink(filename):
+        if hasattr(os, 'readlink') and os.path.islink(filename):
             return md5func(os.readlink(filename)).hexdigest()
         elif os.path.isdir(filename):
             return md5func(filename).hexdigest()
