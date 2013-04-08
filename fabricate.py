@@ -478,41 +478,39 @@ class StraceRunner(Runner):
     keep_temps = False
 
     def __init__(self, builder, build_dir=None):
-        self.strace_version = StraceRunner.get_strace_version()
-        if self.strace_version == 0:
+        self.strace_system_calls = StraceRunner.get_strace_system_calls()
+        if self.strace_system_calls is None:
             raise RunnerUnsupportedException('strace is not available')
-        if self.strace_version == 32:
-            self._stat_re = self._stat32_re
-            self._stat_func = 'stat'
-        else:
-            self._stat_re = self._stat64_re
-            self._stat_func = 'stat64'
         self._builder = builder
         self.temp_count = 0
         self.build_dir = os.path.abspath(build_dir or os.getcwd())
 
     @staticmethod
-    def get_strace_version():
-        """ Return 0 if this system doesn't have strace, nonzero otherwise
-            (64 if strace supports stat64, 32 otherwise). """
+    def get_strace_system_calls():
+        """ Return None if this system doesn't have strace, otherwise
+            return a comma seperated list of system calls supported by strace. """
         if platform.system() == 'Windows':
             # even if windows has strace, it's probably a dodgy cygwin one
-            return 0
+            return None
+        possible_system_calls = ['open','stat', 'stat64', 'lstat', 'lstat64',
+            'execve','exit_group','chdir','mkdir','rename','clone','vfork',
+            'fork','symlink','creat']
+        valid_system_calls = []
         try:
-            proc = subprocess.Popen(['strace', '-e', 'trace=stat64'], stderr=subprocess.PIPE)
-            stdout, stderr = proc.communicate()
-            proc.wait()
-            if 'invalid system call' in stderr:
-                return 32
-            else:
-                return 64
+            # check strace is installed and if it supports each type of call
+            for system_call in possible_system_calls:
+                proc = subprocess.Popen(['strace', '-e', 'trace=' + system_call], stderr=subprocess.PIPE)
+                stdout, stderr = proc.communicate()
+                proc.wait()
+                if 'invalid system call' not in stderr:
+                   valid_system_calls.append(system_call)
         except OSError:
-            return 0
+            return None
+        return ','.join(valid_system_calls)
 
     # Regular expressions for parsing of strace log
     _open_re       = re.compile(r'(?P<pid>\d+)\s+open\("(?P<name>[^"]*)", (?P<mode>[^,)]*)')
-    _stat32_re     = re.compile(r'(?P<pid>\d+)\s+stat\("(?P<name>[^"]*)", .*')
-    _stat64_re     = re.compile(r'(?P<pid>\d+)\s+stat64\("(?P<name>[^"]*)", .*')
+    _stat_re       = re.compile(r'(?P<pid>\d+)\s+l?stat(?:64)?\("(?P<name>[^"]*)", .*') # stat,lstat,stat64,lstat64
     _execve_re     = re.compile(r'(?P<pid>\d+)\s+execve\("(?P<name>[^"]*)", .*')
     _creat_re      = re.compile(r'(?P<pid>\d+)\s+creat\("(?P<name>[^"]*)", .*')
     _mkdir_re      = re.compile(r'(?P<pid>\d+)\s+mkdir\("(?P<name>[^"]*)", .*\)\s*=\s(?P<result>-?[0-9]*).*')
@@ -535,7 +533,7 @@ class StraceRunner(Runner):
         shell_keywords = dict(silent=False)
         shell_keywords.update(kwargs)
         shell('strace', '-fo', outname, '-e',
-              'trace=open,%s,execve,exit_group,chdir,mkdir,rename,clone,vfork,fork,symlink,creat' % self._stat_func,
+              'trace=' + self.strace_system_calls,
               args, **shell_keywords)
         cwd = '.' 
         status = 0
