@@ -1108,7 +1108,7 @@ class Builder(object):
         if self.parallel_ok:
             arglist.insert(0, self.runner)
             if after is not None:
-                if not hasattr(after, '__iter__'):
+                if not hasattr(after, '__setitem__'):
                     after = [after]
                 # This command is registered to False group firstly,
                 # but the actual group of this command should 
@@ -1395,7 +1395,7 @@ def run(*args, **kwargs):
         as a command, returns a list of returns from Builder.run().
     """
     _set_default_builder()
-    if len(args) == 1 and hasattr(args[0], '__iter__'):
+    if len(args) == 1 and hasattr(args[0], '__setitem__'):
         return [default_builder.run(*a, **kwargs) for a in args[0]]
     return default_builder.run(*args, **kwargs)
 
