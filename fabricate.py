@@ -1583,7 +1583,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
                 sys.exit(1)
         after() # wait till the build commands are finished
     except ExecutionError as exc:
-        message, data, status = exc
+        message, data, status = exc.args
         printerr('fabricate: ' + message)
     finally:
         _stop_results.set() # stop the results gatherer so I don't hang
