@@ -895,7 +895,7 @@ class SmartRunner(Runner):
     def __init__(self, builder):
         self._builder = builder
         try:
-            if os.path.exist('/usr/lib/dyld'):
+            if os.path.exists('/usr/lib/dyld'):
                 self._runner = InterposingRunner(self._builder)
             else:
                 self._runner = StraceRunner(self._builder)
