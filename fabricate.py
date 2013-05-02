@@ -29,9 +29,10 @@ __version__ = '1.25'
 deps_version = 2
 
 import atexit
+import codecs
+import glob
 import optparse
 import os
-import codecs
 import platform
 import re
 import shlex
@@ -250,14 +251,38 @@ class Runner(object):
         return self._builder.ignore.search(name)
 
 
-class TrackerRunner(Runner):
+class FileOperationRunner(Runner):
+    """ Base class for all Runners that track file operations to
+        calsulate the depedencies"""
+    def __init__(self, build_dir=None):
+        self._build_dir = os.path.normcase(os.path.abspath(build_dir or os.getcwd()))
+    
+    def _get_relevant_name(self, name):
+        """ Returns a normalised path that is relative to the build 
+            directory if path lies within the build directoy. Returns 
+            None if the file should be ignored as is therfore not
+            relevant to teh build"""
+        # normalise path name to ensure files are only listed once
+        name = os.path.normcase(os.path.normpath(name))
+        
+        # if it's an absolute path name under the build directory,
+        # make it relative to build_dir before saving to .deps file
+        if os.path.isabs(name) and name.startswith(self._build_dir):
+            name = name[len(self._build_dir):]
+            name = name.lstrip(os.path.sep)
+
+        if (self._builder._is_relevant(name) 
+            and not self.ignore(name) 
+            and os.path.lexists(name)):
+            return name
+        return None
+        
+class TrackerRunner(FileOperationRunner):
     __TRACKER = "c:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v8.0A\\bin\\NETFX 4.0 Tools\\Tracker.exe"
 
-    def __init__(self, builder, build_dirs=None):
+    def __init__(self, builder, *args, **kwargs):
+        FileOperationRunner.__init__(self, *args, **kwargs)
         self._builder = builder
-        self._build_dirs = build_dirs
-        if self._build_dirs is None:
-            self._build_dirs = [os.getcwd().upper()]
         if not os.path.isfile(TrackerRunner.__TRACKER):
             raise RunnerUnsupportedException(
                 'tracker.exe is not supported on this platform')
@@ -266,11 +291,11 @@ class TrackerRunner(Runner):
         deps = []
         with codecs.open(tlogFN, 'r', 'utf-16') as tlog:
             lines = tlog.readlines()[1:]
-            for line in lines:
-                for bdirs in self._build_dirs:
-                    if bdirs in line:
-                        deps.append(line)
-            return list(set(lines))
+            for name in lines:
+                name = self._get_relevant_name(name.strip('\r\n'))
+                if name is not None:
+                    deps.append(name)
+            return list(set(deps))
         return []
 
     def __call__(self, *args, **kwargs):
@@ -279,14 +304,14 @@ class TrackerRunner(Runner):
             raise RunnerUnsupportedException('failed to create a temporary directory for tracker')
         shell_keywords = dict(silent=False)
         shell_keywords.update(kwargs)
-        shell(TrackerRunner.__TRACKER, '/if', tmpd, '/c', args, **shell_keywords)
+        shell(TrackerRunner.__TRACKER, '/if', tmpd, '/e', '/c', args, **shell_keywords)
         # dig through all the *.tlog files and get the files touched
         alldeps     = []
         allouts     = []
-        for tlog in [ f for f in os.listdir(tmpd) if '.read.tlog' in (f) ]:
+        for tlog in glob.glob(os.path.join(tmpd, '*.read.*')):
             deps = self.ParseTouched(os.path.join(tmpd, tlog))
             alldeps.extend(deps)
-        for tlog in [ f for f in os.listdir(tmpd) if '.write.tlog' in f ]:
+        for tlog in glob.glob(os.path.join(tmpd, '*.write.*')):
             outs = self.ParseTouched(os.path.join(tmpd, tlog))
             allouts.extend(outs)
         shutil.rmtree(tmpd)
@@ -524,16 +549,16 @@ def _call_strace(self, *args, **kwargs):
     """ Top level function call for Strace that can be run in parallel """
     return self(*args, **kwargs)
 
-class StraceRunner(Runner):
+class StraceRunner(FileOperationRunner):
     keep_temps = False
 
-    def __init__(self, builder, build_dir=None):
+    def __init__(self, builder, *args, **kwargs):
+        FileOperationRunner.__init__(self, *args, **kwargs)
         self.strace_system_calls = StraceRunner.get_strace_system_calls()
         if self.strace_system_calls is None:
             raise RunnerUnsupportedException('strace is not available')
         self._builder = builder
         self.temp_count = 0
-        self.build_dir = os.path.abspath(build_dir or os.getcwd())
 
     @staticmethod
     def get_strace_system_calls():
@@ -661,18 +686,9 @@ class StraceRunner(Runner):
                 if cwd != '.':
                     name = os.path.join(cwd, name)
 
-                # normalise path name to ensure files are only listed once
-                name = os.path.normpath(name)
-
-                # if it's an absolute path name under the build directory,
-                # make it relative to build_dir before saving to .deps file
-                if os.path.isabs(name) and name.startswith(self.build_dir):
-                    name = name[len(self.build_dir):]
-                    name = name.lstrip(os.path.sep)
-
-                if (self._builder._is_relevant(name) 
-                    and not self.ignore(name) 
-                    and os.path.lexists(name)):
+                name = self._get_relevant_name(name)
+                
+                if name is not None:
                     if is_output:
                         processes[pid].add_output(name)
                     else:
@@ -730,7 +746,7 @@ class StraceRunner(Runner):
                                  % (os.path.basename(args[0]), status),
                                  '', status)
         return list(deps), list(outputs)
-
+        
 class AlwaysRunner(Runner):
     def __init__(self, builder):
         pass
