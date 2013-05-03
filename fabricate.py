@@ -1010,8 +1010,8 @@ class Builder(object):
         else:
             self.runner = SmartRunner(self)
 
-        is_strace = isinstance(self.runner.actual_runner(), StraceRunner)
-        self.parallel_ok = parallel_ok and is_strace and _pool is not None
+        is_file_op_runner = isinstance(self.runner.actual_runner(), FileOperationRunner)
+        self.parallel_ok = parallel_ok and is_file_op_runner and _pool is not None
         if self.parallel_ok:
             _results = threading.Thread(target=_results_handler,
                                         args=[self])
