@@ -460,10 +460,12 @@ class AtimesRunner(Runner):
         return deps, outputs
 
 class StraceProcess(object):
-    def __init__(self, cwd='.'):
+    def __init__(self, cwd='.', delayed=False):
         self.cwd = cwd
         self.deps = set()
         self.outputs = set()
+        self.delayed = delayed
+        self.delayed_lines = []
 
     def add_dep(self, dep):
         self.deps.add(dep)
@@ -471,6 +473,9 @@ class StraceProcess(object):
     def add_output(self, output):
         self.outputs.add(output)
 
+    def add_delayed_line(self, line):
+        self.delayed_lines.append(line)
+        
     def __str__(self):
         return '<StraceProcess cwd=%s deps=%s outputs=%s>' % \
                (self.cwd, self.deps, self.outputs)
@@ -540,78 +545,101 @@ class StraceRunner(Runner):
         shell('strace', '-fo', outname, '-e',
               'trace=' + self.strace_system_calls,
               args, **shell_keywords)
-        cwd = '.' 
-        status = 0
+        self.status = 0
         processes  = {}  # dictionary of processes (key = pid)
         unfinished = {}  # list of interrupted entries in strace log
         for line in outfile:
-            # look for split lines
-            unfinished_start_match = self._unfinished_start_re.match(line)
-            unfinished_end_match = self._unfinished_end_re.match(line)
-            if unfinished_start_match:
-                pid = unfinished_start_match.group('pid')
-                body = unfinished_start_match.group('body')
-                unfinished[pid] = pid + ' ' + body
-                continue
-            elif unfinished_end_match:
-                pid = unfinished_end_match.group('pid')
-                body = unfinished_end_match.group('body')
-                line = unfinished[pid] + body
-                del unfinished[pid]
+           self._match_line(line, processes, unfinished)
+ 
+        # collect outputs and dependencies from all processes
+        deps = set()
+        outputs = set()
+        for pid, process in processes.items():
+            deps = deps.union(process.deps)
+            outputs = outputs.union(process.outputs)
 
-            is_output = False
-            open_match = self._open_re.match(line)
-            stat_match = self._stat_re.match(line)
-            execve_match = self._execve_re.match(line)
-            creat_match = self._creat_re.match(line)
-            mkdir_match = self._mkdir_re.match(line)
-            symlink_match = self._symlink_re.match(line)
-            rename_match = self._rename_re.match(line)
-            clone_match = self._clone_re.match(line)  
+        return self.status, list(deps), list(outputs)
+        
+    def _match_line(self, line, processes, unfinished):
+        # look for split lines
+        unfinished_start_match = self._unfinished_start_re.match(line)
+        unfinished_end_match = self._unfinished_end_re.match(line)
+        if unfinished_start_match:
+            pid = unfinished_start_match.group('pid')
+            body = unfinished_start_match.group('body')
+            unfinished[pid] = pid + ' ' + body
+            return
+        elif unfinished_end_match:
+            pid = unfinished_end_match.group('pid')
+            body = unfinished_end_match.group('body')
+            line = unfinished[pid] + body
+            del unfinished[pid]
 
-            kill_match = self._kill_re.match(line)
-            if kill_match:
-                return None, None, None
+        is_output = False
+        open_match = self._open_re.match(line)
+        stat_match = self._stat_re.match(line)
+        execve_match = self._execve_re.match(line)
+        creat_match = self._creat_re.match(line)
+        mkdir_match = self._mkdir_re.match(line)
+        symlink_match = self._symlink_re.match(line)
+        rename_match = self._rename_re.match(line)
+        clone_match = self._clone_re.match(line)  
 
-            match = None
-            if execve_match:
-                pid = execve_match.group('pid')
-                if pid not in processes:
-                    processes[pid] = StraceProcess()
-                    match = execve_match
-            elif clone_match:
-                pid = clone_match.group('pid')
-                pid_clone = clone_match.group('pid_clone')
+        kill_match = self._kill_re.match(line)
+        if kill_match:
+            return None, None, None
+
+        match = None
+        if execve_match:
+            pid = execve_match.group('pid')
+            match = execve_match # Executables can be dependencies
+            if pid not in processes and len(processes) == 0:
+                # This is the first process so create dict entry
+                processes[pid] = StraceProcess()
+        elif clone_match:
+            pid = clone_match.group('pid')
+            pid_clone = clone_match.group('pid_clone')
+            if pid not in processes:
+                # Simple case where there are no delayed lines
                 processes[pid] = StraceProcess(processes[pid_clone].cwd)
-            elif open_match:
-                match = open_match
-                mode = match.group('mode')
-                if 'O_WRONLY' in mode or 'O_RDWR' in mode:
-                    # it's an output file if opened for writing
-                    is_output = True
-            elif stat_match:
-                match = stat_match
-            elif creat_match:
-                match = creat_match
-                # a created file is an output file
+            else:
+                # Some line processing was delayed due to an interupted clone_match
+                processes[pid].cwd = processes[pid_clone].cwd # Set the correct cwd
+                processes[pid].delayed = False # Set that matching is no longer delayed
+                for delayed_line in processes[pid].delayed_lines:
+                    # Process all the delayed lines
+                    _match_line(line, processes, unfinished) 
+                processes[pid].delayed_lines = [] # Clear the lines
+        elif open_match:
+            match = open_match
+            mode = match.group('mode')
+            if 'O_WRONLY' in mode or 'O_RDWR' in mode:
+                # it's an output file if opened for writing
                 is_output = True
-            elif mkdir_match:
-                match = mkdir_match
-                if match.group('result') == '0':
-                    # a created directory is an output file
-                    is_output = True
-            elif symlink_match:
-            	match =  symlink_match                  
-                # the created symlink is an output file
+        elif stat_match:
+            match = stat_match
+        elif creat_match:
+            match = creat_match
+            # a created file is an output file
+            is_output = True
+        elif mkdir_match:
+            match = mkdir_match
+            if match.group('result') == '0':
+                # a created directory is an output file
                 is_output = True
-            elif rename_match:
-                match = rename_match
-                # the destination of a rename is an output file
-                is_output = True
-                
-            if match:
-                name = match.group('name')
-                pid  = match.group('pid')
+        elif symlink_match:
+            match =  symlink_match                  
+            # the created symlink is an output file
+            is_output = True
+        elif rename_match:
+            match = rename_match
+            # the destination of a rename is an output file
+            is_output = True
+            
+        if match:
+            name = match.group('name')
+            pid  = match.group('pid')
+            if not self._matching_is_delayed(processes, pid, line):
                 cwd = processes[pid].cwd
                 if cwd != '.':
                     name = os.path.join(cwd, name)
@@ -633,24 +661,28 @@ class StraceRunner(Runner):
                     else:
                         processes[pid].add_dep(name)
 
-            match = self._chdir_re.match(line)
-            if match:
-                pid  = match.group('pid')
+        match = self._chdir_re.match(line)
+        if match:
+            pid  = match.group('pid')
+            if not self._matching_is_delayed(processes, pid, line):
                 processes[pid].cwd = os.path.join(processes[pid].cwd, match.group('cwd'))
 
-            match = self._exit_group_re.match(line)
-            if match:
-                status = int(match.group('status'))
+        match = self._exit_group_re.match(line)
+        if match:
+            self.status = int(match.group('status'))
 
-        # collect outputs and dependencies from all processes
-        deps = set()
-        outputs = set()
-        for pid, process in processes.items():
-            deps = deps.union(process.deps)
-            outputs = outputs.union(process.outputs)
-
-        return status, list(deps), list(outputs)
-
+    def _matching_is_delayed(self, processes, pid, line):
+        # Check if matching is delayed and cache a delayed line
+        if pid not in processes:
+             processes[pid] = StraceProcess(delayed=True)
+        
+        process = processes[pid]
+        if process.delayed:
+            process.add_delayed_line(line)
+            return True
+        else:
+            return False
+            
     def __call__(self, *args, **kwargs):
         """ Run command and return its dependencies and outputs, using strace
             to determine dependencies (by looking at what files are opened or
