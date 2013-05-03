@@ -864,7 +864,7 @@ def _results_handler( builder, delay=0.01):
                             d, o = r.async.get()
                         except Exception, e:
                             r.results = e
-                            _groups.set_ok(False)
+                            _groups.set_ok(id, False)
                         else:
                             builder.done(r.command, d, o) # save deps
                             r.results = (r.command, d, o)
@@ -983,10 +983,12 @@ class Builder(object):
         is_strace = isinstance(self.runner.actual_runner(), StraceRunner)
         self.parallel_ok = parallel_ok and is_strace and _pool is not None
         if self.parallel_ok:
+            global _results
             _results = threading.Thread(target=_results_handler,
                                         args=[self])
             _results.setDaemon(True)
             _results.start()
+            atexit.register(self._join_results_handler)
             StraceRunner.keep_temps = False # unsafe for parallel execution
             
     def echo(self, message):
@@ -1287,6 +1289,11 @@ class Builder(object):
                     continue
                 return True
         return False
+
+    def _join_results_handler(self):
+        """Stops then joins the results handler thread"""
+        _stop_results.set()
+        _results.join()
 
 # default Builder instance, used by helper run() and main() helper functions
 default_builder = None
