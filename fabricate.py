@@ -1331,7 +1331,7 @@ _parsed_options = None
 # default usage message
 _usage = '[options] build script functions to run'
 
-def parse_options(usage=_usage, extra_options=None, cmdline=None):
+def parse_options(usage=_usage, extra_options=None, command_line=None):
     """ Parse command line options and return (parser, options, args). """
     parser = optparse.OptionParser(usage='Usage: %prog '+usage,
                                    version='%prog '+__version__)
@@ -1354,8 +1354,8 @@ def parse_options(usage=_usage, extra_options=None, cmdline=None):
         # add any user-specified options passed in via main()
         for option in extra_options:
             parser.add_option(option)
-    if cmdline is not None:
-        options, args = parser.parse_args(cmdline)
+    if command_line is not None:
+        options, args = parser.parse_args(command_line)
     else:
         options, args = parser.parse_args()
     _parsed_options = (parser, options, args)
@@ -1380,18 +1380,21 @@ def fabricate_version(min=None, max=None):
     return __version__
 
 def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
-         default=None, jobs=1, cmdline=None, **kwargs):
+         default=None, jobs=1, command_line=None, **kwargs):
     """ Run the default function or the function(s) named in the command line
         arguments. Call this at the end of your build script. If one of the
         functions returns nonzero, main will exit with the last nonzero return
         value as its status code.
 
+        "builder" is the class of builder to create, default (None) is the 
+        normal builder
+        "command_line" is an optional list of command line arguments that can
+        be used to prevent the default parsing of sys.argv. Used to intercept
+        and modify the command line passed to the build script.
+        "default" is the default user script function to call, None = 'build'
         "extra_options" is an optional list of options created with
         optparse.make_option(). The pseudo-global variable main.options
         is set to the parsed options list.
-        "builder" is the class of builder to create, default (None) is the 
-        normal builder
-        "default" is the default user script function to call, None = 'build'
         "kwargs" is any other keyword arguments to pass to the builder """
     global default_builder, default_command, _pool
 
@@ -1399,7 +1402,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     if _parsed_options is not None:
         parser, options, actions = _parsed_options
     else:
-        parser, options, actions = parse_options(extra_options=extra_options, cmdline=cmdline)
+        parser, options, actions = parse_options(extra_options=extra_options, command_line=command_line)
     kwargs['quiet'] = options.quiet
     kwargs['debug'] = options.debug
     if options.time:

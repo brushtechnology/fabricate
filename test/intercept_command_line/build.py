@@ -19,4 +19,4 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         default=sys.argv[1]
     
-    fabricate.main(cmdline=[default])
+    fabricate.main(command_line=[default])
