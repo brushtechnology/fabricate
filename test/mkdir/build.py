@@ -30,7 +30,10 @@ def build():
     
     # make a dir that already partialy exists
     run('mkdir', '-p', 'testdir/c/g', after='c')
-    
+  
+    # make several dirs that do not exist in one operation
+    run('mkdir', '-p', 'testdir2/a/b/c/d')
+  
     # make a dir that already partialy exists but should not be deleted
     run('mkdir', '-p', 'existingdir/a')
     
