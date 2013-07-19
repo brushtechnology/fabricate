@@ -608,7 +608,7 @@ class StraceRunner(Runner):
                 processes[pid].delayed = False # Set that matching is no longer delayed
                 for delayed_line in processes[pid].delayed_lines:
                     # Process all the delayed lines
-                    _match_line(line, processes, unfinished) 
+                    self._match_line(delayed_line, processes, unfinished) 
                 processes[pid].delayed_lines = [] # Clear the lines
         elif open_match:
             match = open_match
