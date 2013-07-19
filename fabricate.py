@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement
 
 # fabricate version number
-__version__ = '1.25'
+__version__ = '1.26'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
