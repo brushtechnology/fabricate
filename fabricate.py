@@ -542,9 +542,20 @@ class StraceRunner(Runner):
             Return (status code, list of dependencies, list of outputs). """
         shell_keywords = dict(silent=False)
         shell_keywords.update(kwargs)
-        shell('strace', '-fo', outname, '-e',
-              'trace=' + self.strace_system_calls,
-              args, **shell_keywords)
+        try:
+            shell('strace', '-fo', outname, '-e',
+                  'trace=' + self.strace_system_calls,
+                  args, **shell_keywords)
+        except ExecutionError, e:
+            # if strace failed to run, re-throw the exception
+            # we can tell this happend if the file is empty
+            outfile.seek(0, os.SEEK_END)
+            if outfile.tell() is 0:
+                raise e
+            else:
+                # reset the file postion for reading
+                outfile.seek(0)
+			
         self.status = 0
         processes  = {}  # dictionary of processes (key = pid)
         unfinished = {}  # list of interrupted entries in strace log
@@ -898,7 +909,8 @@ def _results_handler( builder, delay=0.01):
                         except Exception, e:
                             r.results = e
                             _groups.set_ok(id, False)
-                            print "Error running command: ", r.command
+                            message, data, status = e
+                            printerr("fabricate: " + message)
                         else:
                             builder.done(r.command, d, o) # save deps
                             r.results = (r.command, d, o)
