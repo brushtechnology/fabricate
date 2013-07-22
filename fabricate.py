@@ -767,6 +767,7 @@ class _after(object):
                 arglist, kwargs) or a threading.Condition to be released """
         self.afters = afters
         self.do = do
+        self.done = False
         
 class _Groups(object):
     """ Thread safe mapping object whose values are lists of _running
@@ -897,6 +898,7 @@ def _results_handler( builder, delay=0.01):
                         except Exception, e:
                             r.results = e
                             _groups.set_ok(id, False)
+                            print "Error running command: ", r.command
                         else:
                             builder.done(r.command, d, o) # save deps
                             r.results = (r.command, d, o)
@@ -913,14 +915,24 @@ def _results_handler( builder, delay=0.01):
                             async = _pool.apply_async(_call_strace, a.do.arglist,
                                         a.do.kwargs)
                             _groups.add_for_blocked(a.do.group, _running(async, a.do.command))
+                        else:
+                            # Mark the command as not done due to errors
+                            r = _running(None, a.do.command)
+                            _groups.add_for_blocked(a.do.group, r)
+                            r.results = False;
+                            _groups.set_ok(a.do.group, False)
+                            _groups.dec_count(a.do.group)
                     elif isinstance(a.do, threading._Condition):
                         # is this only for threading._Condition in after()?
                         a.do.acquire()
+                        # only mark as done if there is no error
+                        a.done = no_error 
                         a.do.notify()
                         a.do.release()
                     # else: #are there other cases?
                     _groups.remove_item(False, a)
                     _groups.dec_count(False)
+                    
             _stop_results.wait(delay)
     except Exception:
         etype, eval, etb = sys.exc_info()
@@ -1376,8 +1388,11 @@ def after(*args):
             args = _groups.ids()  # wait on all
         cond = threading.Condition()
         cond.acquire()
-        _groups.add(False, _after(args, cond))
+        a = _after(args, cond)
+        _groups.add(False, a)
         cond.wait()
+        if not a.done:
+            sys.exit(1)
         results = []
         ids = _groups.ids()
         for a in args:
