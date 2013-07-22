@@ -253,15 +253,15 @@ class Runner(object):
 
 class FileOperationRunner(Runner):
     """ Base class for all Runners that track file operations to
-        calsulate the depedencies"""
+        calculate the depedencies"""
     def __init__(self, build_dir=None):
         self._build_dir = os.path.normcase(os.path.abspath(build_dir or os.getcwd()))
     
     def _get_relevant_name(self, name):
         """ Returns a normalised path that is relative to the build 
             directory if path lies within the build directoy. Returns 
-            None if the file should be ignored as is therfore not
-            relevant to teh build"""
+            None if the file should be ignored as it therfore not
+            relevant to the build"""
         # normalise path name to ensure files are only listed once
         name = os.path.normcase(os.path.normpath(name))
         
@@ -278,24 +278,25 @@ class FileOperationRunner(Runner):
         return None
         
 class TrackerRunner(FileOperationRunner):
-    __TRACKER = "c:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v8.0A\\bin\\NETFX 4.0 Tools\\Tracker.exe"
+    _tracker_exe = "c:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v8.0A\\bin\\NETFX 4.0 Tools\\Tracker.exe"
 
     def __init__(self, builder, *args, **kwargs):
         FileOperationRunner.__init__(self, *args, **kwargs)
         self._builder = builder
-        if not os.path.isfile(TrackerRunner.__TRACKER):
+        if not os.path.isfile(TrackerRunner._tracker_exe):
             raise RunnerUnsupportedException(
                 'tracker.exe is not supported on this platform')
 
-    def ParseTouched(self, tlogFN):
-        deps = []
+    def parse_touched(self, tlogFN):
+        deps = set()
         with codecs.open(tlogFN, 'r', 'utf-16') as tlog:
-            lines = tlog.readlines()[1:]
-            for name in lines:
+            lines_iter = iter(tlog) 
+            lines_iter.next()  # skip first line 
+            for name in lines_iter:
                 name = self._get_relevant_name(name.strip('\r\n'))
                 if name is not None:
-                    deps.append(name)
-            return list(set(deps))
+                    deps.add(name)
+            return list(deps)
         return []
 
     def __call__(self, *args, **kwargs):
@@ -304,15 +305,15 @@ class TrackerRunner(FileOperationRunner):
             raise RunnerUnsupportedException('failed to create a temporary directory for tracker')
         shell_keywords = dict(silent=False)
         shell_keywords.update(kwargs)
-        shell(TrackerRunner.__TRACKER, '/if', tmpd, '/e', '/c', args, **shell_keywords)
+        shell(TrackerRunner._tracker_exe, '/if', tmpd, '/e', '/c', args, **shell_keywords)
         # dig through all the *.tlog files and get the files touched
         alldeps     = []
         allouts     = []
         for tlog in glob.glob(os.path.join(tmpd, '*.read.*')):
-            deps = self.ParseTouched(os.path.join(tmpd, tlog))
+            deps = self.parse_touched(os.path.join(tmpd, tlog))
             alldeps.extend(deps)
         for tlog in glob.glob(os.path.join(tmpd, '*.write.*')):
-            outs = self.ParseTouched(os.path.join(tmpd, tlog))
+            outs = self.parse_touched(os.path.join(tmpd, tlog))
             allouts.extend(outs)
         shutil.rmtree(tmpd)
         return alldeps, allouts
