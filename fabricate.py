@@ -554,7 +554,7 @@ class StraceRunner(Runner):
             shell('strace', '-fo', outname, '-e',
                   'trace=' + self.strace_system_calls,
                   args, **shell_keywords)
-        except ExecutionError, e:
+        except ExecutionError as e:
             # if strace failed to run, re-throw the exception
             # we can tell this happend if the file is empty
             outfile.seek(0, os.SEEK_END)
