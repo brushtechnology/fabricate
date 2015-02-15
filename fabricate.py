@@ -520,7 +520,7 @@ class StraceRunner(Runner):
                 proc = subprocess.Popen(['strace', '-e', 'trace=' + system_call], stderr=subprocess.PIPE)
                 stdout, stderr = proc.communicate()
                 proc.wait()
-                if 'invalid system call' not in stderr:
+                if b'invalid system call' not in stderr:
                    valid_system_calls.append(system_call)
         except OSError:
             return None
