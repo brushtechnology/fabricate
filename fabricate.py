@@ -211,7 +211,7 @@ def md5_hasher(filename):
         Windows so symlinks without a hashable target fall back to
         a hash of the filename if the symlink target is a directory, 
         or None if the symlink is broken"""
-    if hasattr(filename, 'encode'):
+    if not isinstance(filename, bytes):
         filename = filename.encode('utf-8')
     try:
         f = open(filename, 'rb')
