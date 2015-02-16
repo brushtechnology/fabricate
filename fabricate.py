@@ -403,7 +403,7 @@ class AtimesRunner(Runner):
             and return a new dict of filetimes with the ages adjusted. """
         adjusted = {}
         now = time.time()
-        for filename, entry in filetimes.iteritems():
+        for filename, entry in filetimes.items():
             if now-entry[0] < FAT_atime_resolution or now-entry[1] < FAT_mtime_resolution:
                 entry = entry[0] - FAT_atime_resolution, entry[1] - FAT_mtime_resolution
                 self._utime(filename, entry[0], entry[1])
