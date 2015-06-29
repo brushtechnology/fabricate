@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement, print_function, unicode_literals
 
 # fabricate version number
-__version__ = '1.26'
+__version__ = '1.27'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -591,6 +591,11 @@ class StraceRunner(Runner):
         elif unfinished_end_match:
             pid = unfinished_end_match.group('pid')
             body = unfinished_end_match.group('body')
+            if pid not in unfinished:
+          	    # Looks like we need to hande an strace bug here
+          	    # I think it is safe to ignore as I have only seen futex calls which strace should not output
+           	    printerr('fabricate: Warning: resume without unfinished in strace output (strace bug?), \'%s\'' % line.strip()) 
+           	    return
             line = unfinished[pid] + body
             del unfinished[pid]
 
@@ -914,7 +919,7 @@ def _results_handler( builder, delay=0.01):
                     if r.results is None and r.async.ready():
                         try:
                             d, o = r.async.get()
-                        except Exception as e:
+                        except ExecutionError as e:
                             r.results = e
                             _groups.set_ok(id, False)
                             message, data, status = e
@@ -957,6 +962,7 @@ def _results_handler( builder, delay=0.01):
     except Exception:
         etype, eval, etb = sys.exc_info()
         printerr("Error: exception " + repr(etype) + " at line " + str(etb.tb_lineno))
+        traceback.print_tb(etb)
     finally:
         if not _stop_results.isSet():
             # oh dear, I am about to die for unexplained reasons, stop the whole
