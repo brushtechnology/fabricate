@@ -22,9 +22,12 @@
       <h1>
 <a id="fabricate" class="anchor" href="#fabricate" aria-hidden="true"><span class="octicon octicon-link"></span></a>fabricate</h1>
 
-<p><strong>fabricate</strong> is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on <a href="HowItWorks#Windows_Issues.md">Windows</a> as well as Linux.</p>
+<h1>
+<a id="fabricate-1" class="anchor" href="#fabricate-1" aria-hidden="true"><span class="octicon octicon-link"></span></a>fabricate</h1>
 
-<p><a href="https://raw.githubusercontent.com/SimonAlfie/fabricate/master/fabricate.py">Get fabricate.py now</a>, learn <a href="HowItWorks.md">how it works</a>, see how to get <a href="Help.md">in-Python help</a>, or discuss it on the <a href="http://groups.google.com/group/fabricate-users">mailing list</a>.</p>
+<p><strong>fabricate</strong> is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on <a href="https://github.com/SimonAlfie/fabricate/wiki/HowItWorks#windows-issues">Windows</a> as well as Linux.</p>
+
+<p><a href="https://raw.githubusercontent.com/SimonAlfie/fabricate/master/fabricate.py">Get fabricate.py now</a>, learn <a href="https://github.com/SimonAlfie/fabricate/wiki/HowItWorks">how it works</a>, see how to get <a href="https://github.com/SimonAlfie/fabricate/wiki/Help">in-Python help</a>, or discuss it on the <a href="http://groups.google.com/group/fabricate-users">mailing list</a>.</p>
 
 <h2>
 <a id="features" class="anchor" href="#features" aria-hidden="true"><span class="octicon octicon-link"></span></a>Features</h2>
@@ -36,7 +39,7 @@
 <li>It uses MD5 (not timestamps) to check inputs and outputs.</li>
 <li>You can learn it all in about 10 minutes.</li>
 <li>You can still read your build scripts 3 months later.</li>
-<li>Now supports <a href="ParallelBuilding.md">parallel building</a>
+<li>Now supports <a href="wiki/ParallelBuilding">parallel building</a>
 </li>
 </ul>
 
@@ -65,7 +68,7 @@ def clean():
 main()
 </code></pre>
 
-<p>This isn't the simplest build script you can make with fabricate (see <a href="Examples.md">other examples</a>), but it's surprisingly close to some of the more complex scripts we use in real life. Things to note:</p>
+<p>This isn't the simplest build script you can make with fabricate (see <a href="https://github.com/SimonAlfie/fabricate/wiki/Examples">other examples</a>), but it's surprisingly close to some of the more complex scripts we use in real life. Things to note:</p>
 
 <ul>
 <li>It's an <strong>ordinary Python file.</strong> Use the clarity and power of Python.</li>
@@ -91,7 +94,7 @@ main()
 <h2>
 <a id="using-fabricate-as-a-script-a-la-memoize" class="anchor" href="#using-fabricate-as-a-script-a-la-memoize" aria-hidden="true"><span class="octicon octicon-link"></span></a>Using fabricate as a script, a la memoize</h2>
 
-<p>You can also use fabricate.py as a script and enter commands directly on the command line (see <a href="CommandLineOptions.md">command line options</a>). In the following, each <code>gcc</code> command will only be run if its dependencies have changed:</p>
+<p>You can also use fabricate.py as a script and enter commands directly on the command line (see <a href="https://github.com/SimonAlfie/fabricate/wiki/CommandLineOptions">command line options</a>). In the following, each <code>gcc</code> command will only be run if its dependencies have changed:</p>
 
 <pre><code>fabricate.py gcc -c program.c
 fabricate.py gcc -c util.c
@@ -126,7 +129,7 @@ fabricate.py gcc -o program program.o util.o
 <h2>
 <a id="credits" class="anchor" href="#credits" aria-hidden="true"><span class="octicon octicon-link"></span></a>Credits</h2>
 
-<p>fabricate is inspired by <a href="http://www.eecs.berkeley.edu/%7Ebillm/memoize.html">Bill McCloskey's memoize</a>, but fabricate works under Windows as well by using file access times instead of strace if strace is not available on your file system. Read more about <a href="HowItWorks.md">how fabricate works.</a></p>
+<p>fabricate is inspired by <a href="http://www.eecs.berkeley.edu/%7Ebillm/memoize.html">Bill McCloskey's memoize</a>, but fabricate works under Windows as well by using file access times instead of strace if strace is not available on your file system. Read more about <a href="https://github.com/SimonAlfie/fabricate/wiki/HowItWorks">how fabricate works.</a></p>
 
 <p>fabricate was originally developed by the B Hoyts at <a href="http://brush.co.nz/">Brush Technology</a> for in-house use, and we then released into the wild. It now has a small but dedicated user base and is actively being maintained and improved by Simon Alford, with help from other fabricate users.</p>
 
