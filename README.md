@@ -1,7 +1,7 @@
 # fabricate #
-**fabricate** is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on [Windows](wiki/HowItWorks#windows-issues/HowItWorks#windows-issues) as well as Linux.
+**fabricate** is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on [Windows](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks#windows-issues/HowItWorks#windows-issues) as well as Linux.
 
-[Get fabricate.py now](https://raw.githubusercontent.com/SimonAlfie/fabricate/master/fabricate.py), learn [how it works](wiki/HowItWorks), see how to get [in-Python help](wiki/Help), or discuss it on the [mailing list](http://groups.google.com/group/fabricate-users).
+[Get fabricate.py now](https://raw.githubusercontent.com/SimonAlfie/fabricate/master/fabricate.py), learn [how it works](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks), see how to get [in-Python help](https://github.com/SimonAlfie/fabricate/wiki/Help), or discuss it on the [mailing list](http://groups.google.com/group/fabricate-users).
 
 ## Features ##
 
@@ -38,7 +38,7 @@ def clean():
 main()
 ```
 
-This isn't the simplest build script you can make with fabricate (see [other examples](wiki/Examples)), but it's surprisingly close to some of the more complex scripts we use in real life. Things to note:
+This isn't the simplest build script you can make with fabricate (see [other examples](https://github.com/SimonAlfie/fabricate/wiki/Examples)), but it's surprisingly close to some of the more complex scripts we use in real life. Things to note:
 
   * It's an **ordinary Python file.** Use the clarity and power of Python.
   * **No implicit stuff** like CCFLAGS.
@@ -58,7 +58,7 @@ The best way to get started is to take one of the examples linked above and modi
 
 ## Using fabricate as a script, a la memoize ##
 
-You can also use fabricate.py as a script and enter commands directly on the command line (see [command line options](wiki/CommandLineOptions)). In the following, each `gcc` command will only be run if its dependencies have changed:
+You can also use fabricate.py as a script and enter commands directly on the command line (see [command line options](https://github.com/SimonAlfie/fabricate/wiki/CommandLineOptions)). In the following, each `gcc` command will only be run if its dependencies have changed:
 
 ```
 fabricate.py gcc -c program.c
@@ -93,7 +93,7 @@ Python says that _explicit is better than implicit_ for a reason, and with fabri
 
 ## Credits ##
 
-fabricate is inspired by [Bill McCloskey's memoize](http://www.eecs.berkeley.edu/~billm/memoize.html), but fabricate works under Windows as well by using file access times instead of strace if strace is not available on your file system. Read more about [how fabricate works.](wiki/HowItWorks)
+fabricate is inspired by [Bill McCloskey's memoize](http://www.eecs.berkeley.edu/~billm/memoize.html), but fabricate works under Windows as well by using file access times instead of strace if strace is not available on your file system. Read more about [how fabricate works.](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks)
 
 fabricate was originally developed by the B Hoyts at [Brush Technology](http://brush.co.nz/) for in-house use, and we then released into the wild. It now has a small but dedicated user base and is actively being maintained and improved by Simon Alford, with help from other fabricate users.
 
