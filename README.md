@@ -1,3 +1,5 @@
+# fabricate #
+
 **fabricate** is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on [Windows](HowItWorks#Windows_Issues.md) as well as Linux.
 
 [Get fabricate.py now](https://fabricate.googlecode.com/git/fabricate.py), learn [how it works](HowItWorks.md), see how to get [in-Python help](Help.md), or discuss it on the [mailing list](http://groups.google.com/group/fabricate-users).
