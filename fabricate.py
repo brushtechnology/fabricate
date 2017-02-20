@@ -1480,6 +1480,7 @@ def parse_options(usage=_usage, extra_options=None, command_line=None):
         options, args = parser.parse_args(command_line)
     else:
         options, args = parser.parse_args()
+    global _parsed_options
     _parsed_options = (parser, options, args)
     return _parsed_options
 
