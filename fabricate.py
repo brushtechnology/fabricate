@@ -1401,7 +1401,7 @@ def run(*args, **kwargs):
         as a command, returns a list of returns from Builder.run().
     """
     _set_default_builder()
-    if len(args) == 1 and isinstance(arg, (list, tuple)):
+    if len(args) == 1 and isinstance(args[0], (list, tuple)):
         return [default_builder.run(*a, **kwargs) for a in args[0]]
     return default_builder.run(*args, **kwargs)
 
