@@ -11,11 +11,11 @@
   * It uses MD5 (not timestamps) to check inputs and outputs.
   * You can learn it all in about 10 minutes.
   * You can still read your build scripts 3 months later.
-  * Now supports [parallel building](wiki/ParallelBuilding)
+  * Now supports [parallel building](https://github.com/SimonAlfie/fabricate/wiki/ParallelBuilding)
 
 ## Show me an example! ##
 
-```
+```python
 from fabricate import *
 
 sources = ['program', 'util']
@@ -99,5 +99,5 @@ fabricate was originally developed by the B Hoyts at [Brush Technology](http://b
 
 ## License ##
 
-Like memoize, fabricate is released under a [New BSD license](http://code.google.com/p/fabricate/wiki/License). fabricate is
+Like memoize, fabricate is released under a [New BSD license](https://github.com/SimonAlfie/fabricate/wiki/License). fabricate is
 Copyright (c) 2009 Brush Technology.
