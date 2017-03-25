@@ -5,7 +5,9 @@ import shutil
 import atexit
 import json
 sys.path.append('.')
+
 from fabricate import *
+import fabricate
 
 __all__ = [ 'runner_list', 'assert_same_json', 'assert_json_equality']
 
@@ -21,7 +23,10 @@ def mock_env(request, mocker):
 def end_fabricate(request, monkeypatch):
     """ This fixture replace atexit.register with its own local implementation
     in order to allow one test to be fully executed (including atexit registred
-    functions) """
+    functions).
+
+    Also resets internal state of the fabricate module. Specifically `_parsed_options`
+    """
     exithandlers = []
 
     def testexit_register(func, *targs, **kargs):
@@ -43,6 +48,11 @@ def end_fabricate(request, monkeypatch):
                 print >> sys.stderr, "Error in mock_env.run_exitfuncs:"
                 traceback.print_exc()
                 exc_info = sys.exc_info()
+
+        # XXX better alternative might be to reimport fabricate on
+        # each `main` invocation, instead of clearing a global variable.
+        fabricate._parsed_options = None
+
         if exc_info is not None:
             raise exc_info[0], exc_info[1], exc_info[2]
 
@@ -90,7 +100,7 @@ def assert_json_equality(depfile, depref, structural_only=False):
                         d[k] = d[k][:6]
                     elif d[k].startswith("output-"):
                         d[k] = d[k][:7]
-    with open(depfile, 'r') as  depfd:
+    with open(depfile, 'r') as depfd:
         out = json.load(depfd)
     if structural_only:
         _replace_md5(out)
