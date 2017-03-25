@@ -1,5 +1,12 @@
 *.pyc
 
+# virtual env
+venv/
+
+# testing
+build_dir/
+.cache/
+
 # Distribution / packaging
 .Python
 env/
