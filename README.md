@@ -1,4 +1,8 @@
 # fabricate #
+
+[![Build
+Status](https://travis-ci.org/chriscz/fabricate.svg?branch=master)](https://travis-ci.org/chriscz/fabricate)
+
 **fabricate** is a build tool that finds dependencies automatically for any language. It's small and just works. No hidden stuff behind your back. It was inspired by Bill McCloskey's make replacement, memoize, but fabricate works on [Windows](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks#windows-issues) as well as Linux.
 
 [Get fabricate.py now](https://raw.githubusercontent.com/SimonAlfie/fabricate/master/fabricate.py), learn [how it works](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks), see how to get [in-Python help](https://github.com/SimonAlfie/fabricate/wiki/Help), or discuss it on the [mailing list](http://groups.google.com/group/fabricate-users).
