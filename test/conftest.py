@@ -24,8 +24,6 @@ def end_fabricate(request, monkeypatch):
     """ This fixture replace atexit.register with its own local implementation
     in order to allow one test to be fully executed (including atexit registred
     functions).
-
-    Also resets internal state of the fabricate module. Specifically `_parsed_options`
     """
     exithandlers = []
 
@@ -48,10 +46,6 @@ def end_fabricate(request, monkeypatch):
                 print >> sys.stderr, "Error in mock_env.run_exitfuncs:"
                 traceback.print_exc()
                 exc_info = sys.exc_info()
-
-        # XXX better alternative might be to reimport fabricate on
-        # each `main` invocation, instead of clearing a global variable.
-        fabricate._parsed_options = None
 
         if exc_info is not None:
             raise exc_info[0], exc_info[1], exc_info[2]

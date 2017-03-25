@@ -1522,7 +1522,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
     global default_builder, default_command, _pool
 
     kwargs.update(_setup_kwargs)
-    if _parsed_options is not None:
+    if _parsed_options is not None and command_line is None:
         parser, options, actions = _parsed_options
     else:
         parser, options, actions = parse_options(extra_options=extra_options, command_line=command_line)
