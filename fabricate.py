@@ -201,15 +201,15 @@ def _shell(args, input=None, silent=True, shell=False, ignore_status=False, **kw
         return output
 
 def md5_hasher(filename):
-    """ Return MD5 hash of given filename if it is a regular file or 
-        a symlink with a hashable target, or the MD5 hash of the 
+    """ Return MD5 hash of given filename if it is a regular file or
+        a symlink with a hashable target, or the MD5 hash of the
         target_filename if it is a symlink without a hashable target,
-        or the MD5 hash of the filename if it is a directory, or None 
-        if file doesn't exist. 
-        
+        or the MD5 hash of the filename if it is a directory, or None
+        if file doesn't exist.
+
         Note: Pyhton versions before 3.2 do not support os.readlink on
         Windows so symlinks without a hashable target fall back to
-        a hash of the filename if the symlink target is a directory, 
+        a hash of the filename if the symlink target is a directory,
         or None if the symlink is broken"""
     if not isinstance(filename, bytes):
         filename = filename.encode('utf-8')
@@ -251,7 +251,7 @@ class Runner(object):
     def actual_runner(self):
         """ Return the actual runner object (overriden in SmartRunner). """
         return self
-        
+
     def ignore(self, name):
         return self._builder.ignore.search(name)
 
@@ -483,7 +483,7 @@ class StraceProcess(object):
 
     def add_delayed_line(self, line):
         self.delayed_lines.append(line)
-        
+
     def __str__(self):
         return '<StraceProcess cwd=%s deps=%s outputs=%s>' % \
                (self.cwd, self.deps, self.outputs)
@@ -563,13 +563,13 @@ class StraceRunner(Runner):
             else:
                 # reset the file postion for reading
                 outfile.seek(0)
-			
+
         self.status = 0
         processes  = {}  # dictionary of processes (key = pid)
         unfinished = {}  # list of interrupted entries in strace log
         for line in outfile:
            self._match_line(line, processes, unfinished)
- 
+
         # collect outputs and dependencies from all processes
         deps = set()
         outputs = set()
@@ -578,7 +578,7 @@ class StraceRunner(Runner):
             outputs = outputs.union(process.outputs)
 
         return self.status, list(deps), list(outputs)
-        
+
     def _match_line(self, line, processes, unfinished):
         # look for split lines
         unfinished_start_match = self._unfinished_start_re.match(line)
@@ -592,10 +592,10 @@ class StraceRunner(Runner):
             pid = unfinished_end_match.group('pid')
             body = unfinished_end_match.group('body')
             if pid not in unfinished:
-          	    # Looks like we need to hande an strace bug here
-          	    # I think it is safe to ignore as I have only seen futex calls which strace should not output
-           	    printerr('fabricate: Warning: resume without unfinished in strace output (strace bug?), \'%s\'' % line.strip()) 
-           	    return
+                  # Looks like we need to hande an strace bug here
+                  # I think it is safe to ignore as I have only seen futex calls which strace should not output
+                   printerr('fabricate: Warning: resume without unfinished in strace output (strace bug?), \'%s\'' % line.strip())
+                   return
             line = unfinished[pid] + body
             del unfinished[pid]
 
@@ -607,7 +607,7 @@ class StraceRunner(Runner):
         mkdir_match = self._mkdir_re.match(line)
         symlink_match = self._symlink_re.match(line)
         rename_match = self._rename_re.match(line)
-        clone_match = self._clone_re.match(line)  
+        clone_match = self._clone_re.match(line)
 
         kill_match = self._kill_re.match(line)
         if kill_match:
@@ -632,7 +632,7 @@ class StraceRunner(Runner):
                 processes[pid].delayed = False # Set that matching is no longer delayed
                 for delayed_line in processes[pid].delayed_lines:
                     # Process all the delayed lines
-                    self._match_line(delayed_line, processes, unfinished) 
+                    self._match_line(delayed_line, processes, unfinished)
                 processes[pid].delayed_lines = [] # Clear the lines
         elif open_match:
             match = open_match
@@ -652,14 +652,14 @@ class StraceRunner(Runner):
                 # a created directory is an output file
                 is_output = True
         elif symlink_match:
-            match =  symlink_match                  
+            match =  symlink_match
             # the created symlink is an output file
             is_output = True
         elif rename_match:
             match = rename_match
             # the destination of a rename is an output file
             is_output = True
-            
+
         if match:
             name = match.group('name')
             pid  = match.group('pid')
@@ -677,8 +677,8 @@ class StraceRunner(Runner):
                     name = name[len(self.build_dir):]
                     name = name.lstrip(os.path.sep)
 
-                if (self._builder._is_relevant(name) 
-                    and not self.ignore(name) 
+                if (self._builder._is_relevant(name)
+                    and not self.ignore(name)
                     and os.path.lexists(name)):
                     if is_output:
                         processes[pid].add_output(name)
@@ -699,14 +699,14 @@ class StraceRunner(Runner):
         # Check if matching is delayed and cache a delayed line
         if pid not in processes:
              processes[pid] = StraceProcess(delayed=True)
-        
+
         process = processes[pid]
         if process.delayed:
             process.add_delayed_line(line)
             return True
         else:
             return False
-            
+
     def __call__(self, *args, **kwargs):
         """ Run command and return its dependencies and outputs, using strace
             to determine dependencies (by looking at what files are opened or
@@ -774,7 +774,7 @@ class SmartRunner(Runner):
         return self._runner(*args, **kwargs)
 
 class _running(object):
-    """ Represents a task put on the parallel pool 
+    """ Represents a task put on the parallel pool
         and its results when complete """
     def __init__(self, async, command):
         """ "async" is the AsyncResult object returned from pool.apply_async
@@ -782,17 +782,17 @@ class _running(object):
         self.async = async
         self.command = command
         self.results = None
-        
+
 class _after(object):
     """ Represents something waiting on completion of some previous commands """
     def __init__(self, afters, do):
         """ "afters" is a group id or a iterable of group ids to wait on
-            "do" is either a tuple representing a command (group, command, 
+            "do" is either a tuple representing a command (group, command,
                 arglist, kwargs) or a threading.Condition to be released """
         self.afters = afters
         self.do = do
         self.done = False
-        
+
 class _Groups(object):
     """ Thread safe mapping object whose values are lists of _running
         or _after objects and a count of how many have *not* completed """
@@ -801,32 +801,32 @@ class _Groups(object):
         def __init__(self, val=None):
             self.count = 0  # count of items not yet completed.
                             # This also includes count_in_false number
-            self.count_in_false = 0  # count of commands which is assigned 
+            self.count_in_false = 0  # count of commands which is assigned
                                      # to False group, but will be moved
                                      # to this group.
             self.items = [] # items in this group
             if val is not None:
                 self.items.append(val)
             self.ok = True  # True if no error from any command in group so far
-            
+
     def __init__(self):
         self.groups = {False: self.value()}
         self.lock = threading.Lock()
-        
+
     def item_list(self, id):
         """ Return copy of the value list """
         with self.lock:
             return self.groups[id].items[:]
-    
+
     def remove(self, id):
         """ Remove the group """
         with self.lock:
             del self.groups[id]
-    
+
     def remove_item(self, id, val):
         with self.lock:
             self.groups[id].items.remove(val)
-            
+
     def add(self, id, val):
         with self.lock:
             if id in self.groups:
@@ -854,15 +854,15 @@ class _Groups(object):
                 raise ValueError
             self.groups[id].count = c
             return c
-    
+
     def get_ok(self, id):
         with self.lock:
             return self.groups[id].ok
-    
+
     def set_ok(self, id, to):
         with self.lock:
             self.groups[id].ok = to
-            
+
     def ids(self):
         with self.lock:
             return self.groups.keys()
@@ -874,21 +874,21 @@ class _Groups(object):
                 self.groups[id] = self.value()
             self.groups[id].count += 1
             self.groups[id].count_in_false += 1
-    
+
     def add_for_blocked(self, id, val):
         # modification of add(), in order to move command from False group
         # to actual group
         with self.lock:
             # id must be registered before
             self.groups[id].items.append(val)
-            # count does not change (already considered 
+            # count does not change (already considered
             # in inc_count_for_blocked), but decrease count_in_false.
             c = self.groups[id].count_in_false - 1
             if c < 0:
                 raise ValueError
             self.groups[id].count_in_false = c
 
-    
+
 # pool of processes to run parallel jobs, must not be part of any object that
 # is pickled for transfer to these processes, ie it must be global
 _pool = None
@@ -905,7 +905,7 @@ class _todo(object):
         self.command = command  # string command
         self.arglist = arglist  # command arguments
         self.kwargs = kwargs    # keywork args for the runner
-        
+
 def _results_handler( builder, delay=0.01):
     """ Body of thread that stores results in .deps and handles 'after'
         conditions
@@ -951,13 +951,13 @@ def _results_handler( builder, delay=0.01):
                         # is this only for threading._Condition in after()?
                         a.do.acquire()
                         # only mark as done if there is no error
-                        a.done = no_error 
+                        a.done = no_error
                         a.do.notify()
                         a.do.release()
                     # else: #are there other cases?
                     _groups.remove_item(False, a)
                     _groups.dec_count(False)
-                    
+
             _stop_results.wait(delay)
     except Exception:
         etype, eval, etb = sys.exc_info()
@@ -966,11 +966,11 @@ def _results_handler( builder, delay=0.01):
     finally:
         if not _stop_results.isSet():
             # oh dear, I am about to die for unexplained reasons, stop the whole
-            # app otherwise the main thread hangs waiting on non-existant me, 
+            # app otherwise the main thread hangs waiting on non-existant me,
             # Note: sys.exit() only kills me
             printerr("Error: unexpected results handler exit")
             os._exit(1)
-        
+
 class Builder(object):
     """ The Builder.
 
@@ -1060,7 +1060,7 @@ class Builder(object):
             _results.start()
             atexit.register(self._join_results_handler)
             StraceRunner.keep_temps = False # unsafe for parallel execution
-            
+
     def echo(self, message):
         """ Print message, but only if builder is not in quiet mode. """
         if not self.quiet:
@@ -1117,7 +1117,7 @@ class Builder(object):
                 if not isinstance(after, (list, tuple)):
                     after = [after]
                 # This command is registered to False group firstly,
-                # but the actual group of this command should 
+                # but the actual group of this command should
                 # count this blocked command as well as usual commands
                 _groups.inc_count_for_blocked(group)
                 _groups.add(False,
@@ -1130,15 +1130,15 @@ class Builder(object):
         else:
             deps, outputs = self.runner(*arglist, **kwargs)
             return self.done(command, deps, outputs)
-        
+
     def run(self, *args, **kwargs):
         """ Run command given in args with kwargs per shell(), but only if its
             dependencies or outputs have changed or don't exist. Return tuple
             of (command_line, deps_list, outputs_list) so caller or subclass
             can use them.
 
-            Parallel operation keyword args "after" specifies a group or 
-            iterable of groups to wait for after they finish, "group" specifies 
+            Parallel operation keyword args "after" specifies a group or
+            iterable of groups to wait for after they finish, "group" specifies
             the group to add this command to.
 
             Optional "echo" keyword arg is passed to echo_command() so you can
@@ -1176,7 +1176,7 @@ class Builder(object):
                     self.hash_cache[output] = hashed
 
             self.deps[command] = deps_dict
-        
+
         return command, deps, outputs
 
     def memoize(self, command, **kwargs):
@@ -1266,7 +1266,7 @@ class Builder(object):
                     # have been removed, as they may be content of the dir
                     dirs.append(output)
                 else:
-                    self.echo_delete(output, e)                
+                    self.echo_delete(output, e)
             else:
                 self.echo_delete(output)
         # delete the directories in reverse sort order
@@ -1275,10 +1275,10 @@ class Builder(object):
             try:
                 os.rmdir(dir)
             except OSError as e:
-                self.echo_delete(dir, e)                
+                self.echo_delete(dir, e)
             else:
                 self.echo_delete(dir)
-               
+
 
     @property
     def deps(self):
@@ -1406,7 +1406,7 @@ def run(*args, **kwargs):
     return default_builder.run(*args, **kwargs)
 
 def after(*args):
-    """ wait until after the specified command groups complete and return 
+    """ wait until after the specified command groups complete and return
         results, or None if not parallel """
     _set_default_builder()
     if getattr(default_builder, 'parallel_ok', False):
@@ -1430,7 +1430,7 @@ def after(*args):
         return results
     else:
         return None
-    
+
 def autoclean():
     """ Automatically delete all outputs of the default build. """
     _set_default_builder()
@@ -1509,7 +1509,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         functions returns nonzero, main will exit with the last nonzero return
         value as its status code.
 
-        "builder" is the class of builder to create, default (None) is the 
+        "builder" is the class of builder to create, default (None) is the
         normal builder
         "command_line" is an optional list of command line arguments that can
         be used to prevent the default parsing of sys.argv. Used to intercept
