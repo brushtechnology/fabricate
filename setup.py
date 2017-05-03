@@ -15,7 +15,6 @@ setup(
 
     extras_require=dict(
         build=['twine', 'wheel', 'setuptools-git'],
-        test=tests_require,
     ),
 
     keywords='fabricate make python build',
@@ -28,6 +27,7 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
     ],
 )
 
