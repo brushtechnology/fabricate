@@ -6,10 +6,12 @@ python:
    - "3.3"
    - "3.4"
    - "3.5"
+   - "3.6"
 # command to install dependencies
 before_install:
    - sudo apt-get update -qq
    - sudo apt-get install -y strace
+   - pip install --upgrade pip
 install: "pip install -r test-requirement.txt"
 # command to run tests
 script: py.test
