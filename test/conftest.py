@@ -48,7 +48,7 @@ def end_fabricate(request, monkeypatch):
                 exc_info = sys.exc_info()
 
         if exc_info is not None:
-            raise exc_info[0], exc_info[1], exc_info[2]
+            raise (exc_info[0], exc_info[1], exc_info[2])
 
     return run_exitfuncs
 
