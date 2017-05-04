@@ -356,9 +356,9 @@ def test_md5_hasher(builddir):
         sh.ln('-s', 'nofile', 'testlink_nofile')
         assert md5_hasher('nofile') == None
         assert md5_hasher('testfile') == EMPY_FILE_MD5
-        assert md5_hasher('testdir') == md5func('testdir').hexdigest()
+        assert md5_hasher('testdir') == md5func('testdir'.encode('utf-8')).hexdigest()
         assert md5_hasher('testlink') == EMPY_FILE_MD5
-        assert md5_hasher('testdirlink') == md5func('testdir').hexdigest()
-        assert md5_hasher('testlink_nofile') == md5func('nofile').hexdigest()
+        assert md5_hasher('testdirlink') == md5func('testdir'.encode('utf-8')).hexdigest()
+        assert md5_hasher('testlink_nofile') == md5func('nofile'.encode('utf-8')).hexdigest()
 
 
