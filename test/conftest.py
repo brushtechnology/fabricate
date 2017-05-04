@@ -13,11 +13,15 @@ __all__ = [ 'runner_list', 'assert_same_json', 'assert_json_equality']
 
 runner_list = [StraceRunner, AtimesRunner]
 
+try:
+    string_types = (basestring,)
+except NameError:
+    string_types = (str,)
+
 @pytest.fixture(autouse=True)
 def mock_env(request, mocker):
     mocker.patch('sys.exit'
                  )  # prevent sys.exit from existing so as to do other tests
-
 
 @pytest.fixture()
 def end_fabricate(request, monkeypatch):
@@ -89,7 +93,7 @@ def assert_json_equality(depfile, depref, structural_only=False):
             if isinstance(d[k], dict):
                 _replace_md5(d[k])
             else:
-                if isinstance(d[k], basestring):
+                if isinstance(d[k], string_types):
                     if d[k].startswith("input-"):
                         d[k] = d[k][:6]
                     elif d[k].startswith("output-"):
