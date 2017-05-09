@@ -28,40 +28,6 @@ def mock_env(request, mocker):
     mocker.patch('sys.exit'
                  )  # prevent sys.exit from existing so as to do other tests
 
-@pytest.fixture()
-def end_fabricate(request, monkeypatch):
-    """ This fixture replace atexit.register with its own local implementation
-    in order to allow one test to be fully executed (including atexit registred
-    functions).
-    """
-    exithandlers = []
-
-    def testexit_register(func, *targs, **kargs):
-        exithandlers.append((func, targs, kargs))
-        return func
-
-    monkeypatch.setattr(atexit, 'register', testexit_register)
-
-    def run_exitfuncs():
-        exc_info = None
-        while exithandlers:
-            func, targs, kargs = exithandlers.pop()
-            try:
-                func(*targs, **kargs)
-            except SystemExit:
-                exc_info = sys.exc_info()
-            except:
-                import traceback
-                print >> sys.stderr, "Error in mock_env.run_exitfuncs:"
-                traceback.print_exc()
-                exc_info = sys.exc_info()
-
-        if exc_info is not None:
-            raise (exc_info[0], exc_info[1], exc_info[2])
-
-    return run_exitfuncs
-
-
 @pytest.fixture
 def cleandir():
     """ Should the build directory be cleaned at the end of each test """
@@ -115,11 +81,11 @@ class FabricateBuild(object):
     """
     Simple wrapper class for builds during testing
     """
-    EXCLUDED_NAMES = {'to_dict', 'main', 'EXCLUDED_NAMES', '_main_kwargs'}
+    EXCLUDED_NAMES = set(['to_dict', 'main', 'EXCLUDED_NAMES', '_main_kwargs'])
 
     def __init__(self, **kwargs):
         """
-        Any kwargs passed will be passed to fabricate.main
+        Any kwargs passed will be passed to fabricate.main when a call to .main is made
         """
         self._main_kwargs = kwargs
 
