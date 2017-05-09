@@ -4,12 +4,17 @@ import os
 import shutil
 import atexit
 import json
+import inspect
+
 sys.path.append('.')
 
 from fabricate import *
 import fabricate
 
-__all__ = [ 'runner_list', 'assert_same_json', 'assert_json_equality']
+from _pytest.monkeypatch import MonkeyPatch
+
+
+__all__ = [ 'runner_list', 'assert_same_json', 'assert_json_equality', 'FabricateBuild']
 
 runner_list = [StraceRunner, AtimesRunner]
 
@@ -105,3 +110,80 @@ def assert_json_equality(depfile, depref, structural_only=False):
         _replace_md5(depref)
     assert out == depref
 
+
+class FabricateBuild(object):
+    """
+    Simple wrapper class for builds during testing
+    """
+    EXCLUDED_NAMES = {'to_dict', 'main', 'EXCLUDED_NAMES', '_main_kwargs'}
+
+    def __init__(self, **kwargs):
+        """
+        Any kwargs passed will be passed to fabricate.main
+        """
+        self._main_kwargs = kwargs
+
+    def build(self):
+        pass
+
+    def clean(self):
+        pass
+
+    def main(self, *args, **kwargs):
+        """execute the fabricate.main function with default
+           kwargs as given to __init__ and
+           globals_dict=self.to_dict()
+        """
+
+        kwargs['globals_dict'] = kwargs.pop('globals_dict', self.to_dict())
+
+        for name in self._main_kwargs:
+            kwargs[name] = kwargs.pop(name, self._main_kwargs[name])
+
+        # --- intercept any exit atexit functions
+        exithandlers = []
+        def atexit_register(func, *targs, **kargs):
+            exithandlers.append((func, targs, kargs))
+            return func
+
+        def run_exitfuncs():
+            exc_info = None
+            while exithandlers:
+                func, targs, kargs = exithandlers.pop()
+                try:
+                    func(*targs, **kargs)
+                except SystemExit:
+                    exc_info = sys.exc_info()
+                except:
+                    import traceback
+                    print >> sys.stderr, "Error in mock_env.run_exitfuncs:"
+                    traceback.print_exc()
+                    exc_info = sys.exc_info()
+
+            if exc_info is not None:
+                raise (exc_info[0], exc_info[1], exc_info[2])
+
+        monkeypatch = MonkeyPatch()
+        monkeypatch.setattr(atexit, 'register', atexit_register)
+
+        try:
+            fabricate.main(*args, **kwargs)
+            run_exitfuncs()
+        finally:
+            monkeypatch.undo()
+
+
+    def to_dict(self):
+        dct = {}
+
+        # filter out special names
+        for name in dir(self):
+            if name.startswith('__'):
+                continue
+
+            if name in self.EXCLUDED_NAMES:
+                continue
+
+            dct[name] = getattr(self, name)
+
+        return dct
