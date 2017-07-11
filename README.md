@@ -99,7 +99,7 @@ Python says that _explicit is better than implicit_ for a reason, and with fabri
 
 fabricate is inspired by [Bill McCloskey's memoize](http://www.eecs.berkeley.edu/~billm/memoize.html), but fabricate works under Windows as well by using file access times instead of strace if strace is not available on your file system. Read more about [how fabricate works.](https://github.com/SimonAlfie/fabricate/wiki/HowItWorks)
 
-fabricate was originally developed by the B Hoyts at [Brush Technology](http://brush.co.nz/) for in-house use, and we then released into the wild. It now has a small but dedicated user base and is actively being maintained and improved by Simon Alford, with help from other fabricate users.
+fabricate was originally developed by the [Ben Hoyt](https://github.com/benhoyt) at [Brush Technology](http://brush.co.nz/) for in-house use, and we then released into the wild. It now has a small but dedicated user base and is actively being maintained and improved by Simon Alford, with help from other fabricate users.
 
 ## License ##
 
