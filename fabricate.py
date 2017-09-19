@@ -23,7 +23,7 @@ To get help on fabricate functions:
 from __future__ import with_statement, print_function, unicode_literals
 
 # fabricate version number
-__version__ = '1.29.2'
+__version__ = '1.29.3'
 
 # if version of .deps file has changed, we know to not use it
 deps_version = 2
@@ -40,6 +40,7 @@ import sys
 import tempfile
 import time
 import threading # NB uses old camelCase names for backward compatibility
+import traceback
 # multiprocessing module only exists on Python >= 2.6
 try:
     import multiprocessing
@@ -49,11 +50,18 @@ except ImportError:
             raise NotImplementedError("multiprocessing module not available, can't do parallel builds")
     multiprocessing = MultiprocessingModule()
 
+# compatibility            
 PY3 = sys.version_info[0] == 3
 if PY3:
     string_types = str
+    threading_condition = threading.Condition
 else:
     string_types = basestring
+
+try:
+    threading_condition = threading._Condition
+except ImportError:
+    threading_condition = threading.Condition
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
@@ -944,11 +952,11 @@ def _results_handler( builder, delay=0.01):
                             # Mark the command as not done due to errors
                             r = _running(None, a.do.command)
                             _groups.add_for_blocked(a.do.group, r)
-                            r.results = False;
+                            r.results = False
                             _groups.set_ok(a.do.group, False)
                             _groups.dec_count(a.do.group)
-                    elif isinstance(a.do, threading._Condition):
-                        # is this only for threading._Condition in after()?
+                    elif isinstance(a.do, threading_condition):
+                        # is this only for threading_condition in after()?
                         a.do.acquire()
                         # only mark as done if there is no error
                         a.done = no_error
