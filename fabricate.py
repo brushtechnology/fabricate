@@ -50,7 +50,7 @@ except ImportError:
             raise NotImplementedError("multiprocessing module not available, can't do parallel builds")
     multiprocessing = MultiprocessingModule()
 
-# compatibility            
+# compatibility
 PY3 = sys.version_info[0] == 3
 if PY3:
     string_types = str
@@ -784,10 +784,10 @@ class SmartRunner(Runner):
 class _running(object):
     """ Represents a task put on the parallel pool
         and its results when complete """
-    def __init__(self, async, command):
-        """ "async" is the AsyncResult object returned from pool.apply_async
+    def __init__(self, async_, command):
+        """ "async_" is the AsyncResult object returned from pool.apply_async
             "command" is the command that was run """
-        self.async = async
+        self.async_ = async_
         self.command = command
         self.results = None
 
@@ -924,9 +924,9 @@ def _results_handler( builder, delay=0.01):
             for id in _groups.ids():
                 if id is False: continue # key of False is _afters not _runnings
                 for r in _groups.item_list(id):
-                    if r.results is None and r.async.ready():
+                    if r.results is None and r.async_.ready():
                         try:
-                            d, o = r.async.get()
+                            d, o = r.async_.get()
                         except ExecutionError as e:
                             r.results = e
                             _groups.set_ok(id, False)
@@ -945,9 +945,9 @@ def _results_handler( builder, delay=0.01):
                 if still_to_do == 0:
                     if isinstance(a.do, _todo):
                         if no_error:
-                            async = _pool.apply_async(_call_strace, a.do.arglist,
+                            async_ = _pool.apply_async(_call_strace, a.do.arglist,
                                         a.do.kwargs)
-                            _groups.add_for_blocked(a.do.group, _running(async, a.do.command))
+                            _groups.add_for_blocked(a.do.group, _running(async_, a.do.command))
                         else:
                             # Mark the command as not done due to errors
                             r = _running(None, a.do.command)
@@ -1132,8 +1132,8 @@ class Builder(object):
                             _after(after, _todo(group, command, arglist,
                                                 kwargs)))
             else:
-                async = _pool.apply_async(_call_strace, arglist, kwargs)
-                _groups.add(group, _running(async, command))
+                async_ = _pool.apply_async(_call_strace, arglist, kwargs)
+                _groups.add(group, _running(async_, command))
             return None
         else:
             deps, outputs = self.runner(*arglist, **kwargs)
