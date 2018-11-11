@@ -1607,7 +1607,8 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         os.chdir(original_path)
     sys.exit(status)
 
-if __name__ == '__main__':
+
+def cli():
     # if called as a script, emulate memoize.py -- run() command line
     parser, options, args = parse_options('[options] command line to run')
     status = 0
@@ -1618,3 +1619,6 @@ if __name__ == '__main__':
         status = 1
     # autoclean may have been used
     sys.exit(status)
+
+if __name__ == '__main__':
+    cli()

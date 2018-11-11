@@ -20,6 +20,12 @@ setup(
     url='https://github.com/SimonAlfie/fabricate/',
     py_modules=['fabricate'],
 
+    entry_points={
+        'console_scripts': [
+            'fabricate = fabricate:cli',
+        ],
+    },
+
     extras_require=dict(
         build=['twine', 'wheel', 'setuptools-git', 'pypandoc'],
     ),
