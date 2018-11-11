@@ -60,7 +60,7 @@ else:
 
 try:
     threading_condition = threading._Condition
-except ImportError:
+except (ImportError, AttributeError):
     threading_condition = threading.Condition
 
 # so you can do "from fabricate import *" to simplify your build script
