@@ -5,6 +5,7 @@ import shutil
 import atexit
 import json
 import inspect
+import tempfile
 
 sys.path.append('.')
 
@@ -16,7 +17,15 @@ from _pytest.monkeypatch import MonkeyPatch
 
 __all__ = [ 'runner_list', 'assert_same_json', 'assert_json_equality', 'FabricateBuild']
 
-runner_list = [StraceRunner, AtimesRunner]
+possible_runner_list = [StraceRunner, AtimesRunner]
+runner_list = []
+temp_dir = tempfile.mkdtemp()
+for r in possible_runner_list:
+    try:
+        if r(fabricate.Builder(dirs=[temp_dir])):
+            runner_list.append(r)
+    except fabricate.RunnerUnsupportedException:
+        runner_list.append(pytest.param(r, marks=pytest.mark.skip))
 
 try:
     string_types = (basestring,)
