@@ -50,7 +50,7 @@ except ImportError:
             raise NotImplementedError("multiprocessing module not available, can't do parallel builds")
     multiprocessing = MultiprocessingModule()
 
-# compatibility            
+# compatibility
 PY3 = sys.version_info[0] == 3
 if PY3:
     string_types = str
@@ -272,7 +272,26 @@ class AtimesRunner(Runner):
                 'atimes are not supported on this platform')
 
     @staticmethod
+    def access_file(filename):
+        """ Access (read a byte from) file to try to update its access time. """
+        f = open(filename)
+        f.read(1)
+        f.close()
+
+    @staticmethod
     def file_has_atimes(filename):
+        return AtimesRunner.fs_item_has_atimes(filename, AtimesRunner.access_file)
+
+    @staticmethod
+    def access_dir(dir):
+        os.walk(dir)
+
+    @staticmethod
+    def dir_has_atimes(dir):
+        return AtimesRunner.fs_item_has_atimes(dir, AtimesRunner.access_dir)
+
+    @staticmethod
+    def fs_item_has_atimes(filename, changer):
         """ Return whether the given filesystem supports access time updates for
             this file. Return:
               - 0 if no a/mtimes not updated
@@ -280,20 +299,13 @@ class AtimesRunner(Runner):
                 the mtime resolution at least 2 seconds (as on FAT filesystems)
               - 2 if the atime and mtime resolutions are both < ms
                 (NTFS filesystem has 100 ns resolution). """
-
-        def access_file(filename):
-            """ Access (read a byte from) file to try to update its access time. """
-            f = open(filename)
-            f.read(1)
-            f.close()
-
         initial = os.stat(filename)
         os.utime(filename, (
             initial.st_atime-FAT_atime_resolution,
             initial.st_mtime-FAT_mtime_resolution))
 
         adjusted = os.stat(filename)
-        access_file(filename)
+        changer(filename)
         after = os.stat(filename)
 
         # Check that a/mtimes actually moved back by at least resolution and
@@ -356,6 +368,12 @@ class AtimesRunner(Runner):
                 atimes = min(atimes, AtimesRunner.file_has_atimes(filename))
             finally:
                 os.remove(filename)
+
+            dir = tempfile.mkdtemp(dir=path)
+            try:
+                atimes = min(atimes, AtimesRunner.dir_has_atimes(dir))
+            finally:
+                os.rmdir(dir)
         return atimes
 
     def _file_times(self, path, depth):
