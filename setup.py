@@ -17,7 +17,7 @@ setup(
     license='New BSD License',
     maintainer='Chris Coetzee',
     maintainer_email='chriscz93@gmail.com',
-    url='https://github.com/SimonAlfie/fabricate/',
+    url='https://github.com/brushtechnology/fabricate/',
     py_modules=['fabricate'],
 
     extras_require=dict(

@@ -8,11 +8,11 @@ inspired by Bill McCloskey's make replacement, memoize, but fabricate works on
 Windows as well as Linux.
 
 Read more about how to use it and how it works on the project page:
-    https://github.com/SimonAlfie/fabricate/
+    https://github.com/brushtechnology/fabricate/
 
 Like memoize, fabricate is released under a "New BSD license". fabricate is
 copyright (c) 2009 Brush Technology. Full text of the license is here:
-    https://github.com/SimonAlfie/fabricate/wiki/License
+    https://github.com/brushtechnology/fabricate/wiki/License
 
 To get help on fabricate functions:
     from fabricate import *
@@ -984,7 +984,7 @@ class Builder(object):
 
         You may supply a "runner" class to change the way commands are run
         or dependencies are determined. For an example, see:
-            https://github.com/SimonAlfie/fabricate/wiki/HowtoMakeYourOwnRunner
+            https://github.com/brushtechnology/fabricate/wiki/HowtoMakeYourOwnRunner
 
         A "runner" must be a subclass of Runner and must have a __call__()
         function that takes a command as a list of args and returns a tuple of
