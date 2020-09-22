@@ -518,7 +518,7 @@ class StraceRunner(Runner):
         if platform.system() == 'Windows':
             # even if windows has strace, it's probably a dodgy cygwin one
             return None
-        possible_system_calls = ['open','stat', 'stat64', 'lstat', 'lstat64',
+        possible_system_calls = ['open','openat','stat', 'stat64', 'lstat', 'lstat64',
             'execve','exit_group','chdir','mkdir','rename','clone','vfork',
             'fork','symlink','creat']
         valid_system_calls = []
@@ -536,6 +536,7 @@ class StraceRunner(Runner):
 
     # Regular expressions for parsing of strace log
     _open_re       = re.compile(r'(?P<pid>\d+)\s+open\("(?P<name>[^"]*)", (?P<mode>[^,)]*)')
+    _openat_re     = re.compile(r'(?P<pid>\d+)\s+openat\([^,]*, "(?P<name>[^"]*)", (?P<mode>[^,)]*)')
     _stat_re       = re.compile(r'(?P<pid>\d+)\s+l?stat(?:64)?\("(?P<name>[^"]*)", .*') # stat,lstat,stat64,lstat64
     _execve_re     = re.compile(r'(?P<pid>\d+)\s+execve\("(?P<name>[^"]*)", .*')
     _creat_re      = re.compile(r'(?P<pid>\d+)\s+creat\("(?P<name>[^"]*)", .*')
@@ -609,6 +610,7 @@ class StraceRunner(Runner):
 
         is_output = False
         open_match = self._open_re.match(line)
+        openat_match = self._openat_re.match(line)
         stat_match = self._stat_re.match(line)
         execve_match = self._execve_re.match(line)
         creat_match = self._creat_re.match(line)
@@ -644,6 +646,12 @@ class StraceRunner(Runner):
                 processes[pid].delayed_lines = [] # Clear the lines
         elif open_match:
             match = open_match
+            mode = match.group('mode')
+            if 'O_WRONLY' in mode or 'O_RDWR' in mode:
+                # it's an output file if opened for writing
+                is_output = True
+        elif openat_match:
+            match = openat_match
             mode = match.group('mode')
             if 'O_WRONLY' in mode or 'O_RDWR' in mode:
                 # it's an output file if opened for writing
