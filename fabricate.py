@@ -57,7 +57,10 @@ if PY3:
     threading_condition = threading.Condition
 else:
     string_types = basestring
+try:
     threading_condition = threading._Condition
+except (ImportError, AttributeError):
+    threading_condition = threading.Condition
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
@@ -1611,7 +1614,7 @@ def main(globals_dict=None, build_dir=None, extra_options=None, builder=None,
         os.chdir(original_path)
     sys.exit(status)
 
-if __name__ == '__main__':
+def cli():
     # if called as a script, emulate memoize.py -- run() command line
     parser, options, args = parse_options('[options] command line to run')
     status = 0
@@ -1622,3 +1625,6 @@ if __name__ == '__main__':
         status = 1
     # autoclean may have been used
     sys.exit(status)
+
+if __name__ == '__main__':
+    cli()
