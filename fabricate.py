@@ -51,17 +51,13 @@ except ImportError:
     multiprocessing = MultiprocessingModule()
 
 # compatibility            
-PY3 = sys.version_info[0] == 3
+PY3 = sys.version_info[0] >= 3
 if PY3:
     string_types = str
     threading_condition = threading.Condition
 else:
     string_types = basestring
-
-try:
     threading_condition = threading._Condition
-except ImportError:
-    threading_condition = threading.Condition
 
 # so you can do "from fabricate import *" to simplify your build script
 __all__ = ['setup', 'run', 'autoclean', 'main', 'shell', 'fabricate_version',
@@ -567,7 +563,7 @@ class StraceRunner(Runner):
             # if strace failed to run, re-throw the exception
             # we can tell this happend if the file is empty
             outfile.seek(0, os.SEEK_END)
-            if outfile.tell() is 0:
+            if outfile.tell() == 0:
                 raise e
             else:
                 # reset the file postion for reading
@@ -792,10 +788,10 @@ class SmartRunner(Runner):
 class _running(object):
     """ Represents a task put on the parallel pool
         and its results when complete """
-    def __init__(self, async, command):
-        """ "async" is the AsyncResult object returned from pool.apply_async
+    def __init__(self, async_result, command):
+        """ "async_result" is the AsyncResult object returned from pool.apply_async
             "command" is the command that was run """
-        self.async = async
+        self.async_result = async_result
         self.command = command
         self.results = None
 
@@ -932,9 +928,9 @@ def _results_handler( builder, delay=0.01):
             for id in _groups.ids():
                 if id is False: continue # key of False is _afters not _runnings
                 for r in _groups.item_list(id):
-                    if r.results is None and r.async.ready():
+                    if r.results is None and r.async_result.ready():
                         try:
-                            d, o = r.async.get()
+                            d, o = r.async_result.get()
                         except ExecutionError as e:
                             r.results = e
                             _groups.set_ok(id, False)
@@ -953,9 +949,9 @@ def _results_handler( builder, delay=0.01):
                 if still_to_do == 0:
                     if isinstance(a.do, _todo):
                         if no_error:
-                            async = _pool.apply_async(_call_strace, a.do.arglist,
+                            async_result = _pool.apply_async(_call_strace, a.do.arglist,
                                         a.do.kwargs)
-                            _groups.add_for_blocked(a.do.group, _running(async, a.do.command))
+                            _groups.add_for_blocked(a.do.group, _running(async_result, a.do.command))
                         else:
                             # Mark the command as not done due to errors
                             r = _running(None, a.do.command)
@@ -1140,8 +1136,8 @@ class Builder(object):
                             _after(after, _todo(group, command, arglist,
                                                 kwargs)))
             else:
-                async = _pool.apply_async(_call_strace, arglist, kwargs)
-                _groups.add(group, _running(async, command))
+                async_result = _pool.apply_async(_call_strace, arglist, kwargs)
+                _groups.add(group, _running(async_result, command))
             return None
         else:
             deps, outputs = self.runner(*arglist, **kwargs)
