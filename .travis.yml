@@ -13,4 +13,4 @@ before_install:
    - sudo apt-get install -y strace
 install: "pip install -r test-requirement.txt"
 # command to run tests
-script: pytest
+script: pytest -v

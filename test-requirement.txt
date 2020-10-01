@@ -1,4 +1,4 @@
 mock==2.0.0
 plumbum==1.6.3
-pytest==3.0.7
+pytest==4.3.0
 pytest-mock==1.5.0
